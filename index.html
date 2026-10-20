@@ -29,12 +29,23 @@
     <span class="header-label">Sinu turuvaade</span>
     <span class="market-label"><span class="dot"></span> USA aktsiad · USD</span>
     <button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Hele teema" aria-pressed="false">Hele teema</button>
+    <details id="account-menu" class="account-menu">
+      <summary id="account-button" aria-controls="account-actions">Logi sisse</summary>
+      <div id="account-actions" class="account-dropdown" hidden>
+        <p id="account-caption">Sinu profiil</p>
+        <button id="account-settings" type="button">Minu seaded</button>
+        <button id="profile-switch" type="button">Vaheta kasutajat</button>
+        <button id="profile-lock" type="button">Logi välja</button>
+      </div>
+    </details>
   </header>
   <main>
     <nav class="view-tabs" aria-label="Vaate valik">
       <a href="./" aria-current="page">Päevavaade</a>
       <a href="tradingview.html">TradingView</a>
     </nav>
+    <div class="profile-context"><span id="profile-context">Külalisvaade · oma sihthindade jaoks logi sisse</span><button id="open-settings" class="text-button" type="button">Logi sisse</button></div>
+    <p id="profile-notice" class="notice" role="status" hidden></p>
     <div class="page-heading">
       <div><p class="eyebrow">VÄHEM MÜRA. ROHKEM ÜLEVAADET.</p><h1>Hoia ostuhetkel silm peal<span>.</span></h1>
       <p class="intro">Viis tuttavat ettevõtet. Päevased hinnad ja RSI signaalid ühes vaates.</p></div>
@@ -76,6 +87,18 @@
       <div id="price-chart" class="chart"></div>
       <div class="chart-label rsi-label"><span>RSI (14) <span class="chart-key">─ 30 / 40 / 70 piirid</span></span><strong id="detail-rsi">—</strong></div>
       <div id="rsi-chart" class="chart rsi-chart"></div>
+      <section class="purchase-plan" aria-labelledby="purchase-heading">
+        <div><p class="eyebrow">SINU OSTUPLAAN</p><h3 id="purchase-heading">Valitud aktsia sihthind</h3></div>
+        <p id="target-status" class="target-status" role="status">Sihthinna nägemiseks logi sisse.</p>
+        <form id="quick-target-form" class="quick-target-form" hidden>
+          <label><span id="quick-target-label">Sihthind · USD</span><input id="quick-target" type="number" min="0.0001" step="any" placeholder="Määramata" disabled></label>
+          <button id="quick-target-save" class="primary" type="submit" disabled>Salvesta muudatused</button>
+          <button id="quick-settings" class="secondary" type="button">Kõik seaded</button>
+        </form>
+        <button id="target-login" class="secondary" type="button">Logi sisse ja määra sihthind</button>
+        <p id="quick-save-status" class="section-caption" role="status"></p>
+        <p class="section-caption">Sihthinda kontrollitakse päeva sulgemisel. Tühi väli lülitab selle välja.</p>
+      </section>
       <div class="trend-summary">
         <div><span>Hinna suund · 5 kauplemispäeva</span><strong id="price-trend">—</strong></div>
         <div><span>RSI suund · 5 kauplemispäeva</span><strong id="rsi-trend">—</strong></div>
@@ -89,28 +112,40 @@
     </section>
 
     <section class="panel research-panel" aria-labelledby="research-heading">
-      <p class="eyebrow">OSTUPLAAN JA AJALOOLINE VÕRDLUS</p>
-      <h2 id="research-heading">Sihthind ja signaalide tulemused</h2>
+      <p class="eyebrow">KONTROLLI SIGNAALIDE TAUSTA</p>
+      <h2 id="research-heading">Ajalooline võrdlus</h2>
       <p id="long-trend" class="section-caption"></p>
-      <p id="target-status" class="target-status" role="status">Laadin sihthinda…</p>
-      <div class="profile-panel" aria-labelledby="profile-heading">
-        <h3 id="profile-heading">Vali oma profiil</h3>
-        <form id="profile-form" class="profile-controls">
-          <label>Profiil<select id="profile-select" disabled>
-            <option value="user-1">Kasutaja 1</option>
-            <option value="user-2">Kasutaja 2</option>
-            <option value="user-3">Kasutaja 3</option>
-          </select></label>
-          <label>Profiili kood<input id="profile-code" type="password" minlength="4" maxlength="128" autocomplete="current-password" placeholder="Sinu profiili kood" disabled></label>
-          <button id="profile-unlock" class="secondary" type="submit" disabled>Ava profiil</button>
-          <button id="profile-lock" class="secondary" type="button" disabled>Lukusta</button>
-        </form>
-        <p id="profile-status" class="section-caption" role="status">Kontrollin profiiliteenuse ühendust…</p>
-        <p class="section-caption">Vali profiil ja ava see omaniku antud koodiga. Salvestatud valikuid kontrollitakse ka suletud lehe korral. Kõigi profiilide signaalid lähevad ühisesse repo Issue-voogu; teavitustes olevad hinnad ja profiilinimed on repo lugejatele nähtavad.</p>
-      </div>
+      <details class="research-details"><summary>Ava ajaloolised tulemused ja ostustrateegiate võrdlus</summary>
+      <h3>Ajaloolised ostukandidaadid</h3>
+      <p id="backtest-period" class="section-caption">Laadin võrdlust…</p>
+      <div class="table-scroll"><table><thead><tr><th>Hoidmisaeg</th><th>Lõpetatud juhtumeid</th><th>Keskmine netomuutus</th><th>Positiivsete osakaal</th><th>Halvim ostujärgne langus</th></tr></thead><tbody id="backtest-results"></tbody></table></div>
+      <p class="chart-note">Ost toimub signaalile järgneva kauplemispäeva sulgemishinnaga; müük 5, 20 või 60 kauplemispäeva hiljem. Lõpetamata juhtumeid ei arvestata. Halvim langus mõõdab sulgemishindade langust ostust hoidmisaja lõpuni, enne kulusid. Juhtumite ajavahemikud võivad kattuda ega ole sõltumatud.</p>
+      <h3>Signaali ootamine või igakuine ostmine?</h3>
+      <p id="backtest-comparison" class="section-caption"></p>
+      <p id="backtest-cost" class="section-caption"></p>
+      <p class="chart-note">Mõlemad alustavad samal kuupäeval pärast 200 päeva eellugu ning saavad samad sissemaksed. Signaalistrateegia ostab kogunenud raha eest alles signaalile järgneval sulgemisel, teine ostab igakuiselt. Lõppväärtus sisaldab kasutamata raha ja positsiooni müügikulu. Raha intress, maksud ja valuutavahetus puuduvad; lubatud on aktsia murdosad. Korrigeeritud hinnad arvestavad dividende ja splitte, dividende eraldi juurde ei liideta. Võrdlus kasutab praegust viit aktsiat ja piiratud ajalugu ega ole sõltumatu strateegia tõestus.</p>
+      <details><summary>Vaata iga ajaloolise signaali tulemust</summary><div class="history-scroll"><table><thead><tr><th>Signaal</th><th>Ost</th><th>Hoidmispäevi</th><th>Müük</th><th>Netomuutus</th><th>Halvim langus</th></tr></thead><tbody id="backtest-trades"></tbody></table></div></details>
+      </details>
+    </section>
+    <footer><span>◉ Stock Radar <span class="footer-separator">/</span> Teadlikum ülevaade, päev korraga.</span><p>RSI ei ennusta kuu põhja ega taga tootlust. Tehnilised signaalid ei ole personaalne investeerimissoovitus.</p><a href="https://github.com/karlreispass/stock-radar" target="_blank" rel="noopener noreferrer">Vaata GitHubis ↗</a></footer>
+  </main>
 
-      <details>
-        <summary>Muuda sihthindu, teavitusi ja võrdluse kulusid</summary>
+  <dialog id="login-dialog" class="app-dialog login-dialog" aria-labelledby="profile-heading">
+    <div class="dialog-heading"><div><p class="eyebrow">SINU STOCK RADAR</p><h2 id="profile-heading">Logi sisse</h2></div><button id="login-close" class="icon-button" type="button" aria-label="Sulge sisselogimine">✕</button></div>
+    <p class="section-caption">Ava oma sihthinnad ja teavituste valikud. Need on sama kasutajaga saadaval ka teises seadmes.</p>
+      <form id="profile-form" class="profile-controls">
+        <label>Kasutaja<select id="profile-select" autocomplete="username" disabled>
+          <option value="user-1">Kasutaja 1</option><option value="user-2">Kasutaja 2</option><option value="user-3">Kasutaja 3</option>
+        </select></label>
+        <label>Profiili kood<input id="profile-code" type="password" minlength="4" maxlength="128" autocomplete="current-password" placeholder="Sisesta kood" disabled></label>
+        <button id="profile-unlock" class="primary" type="submit" disabled>Logi sisse</button>
+      </form>
+    <p id="profile-status" class="section-caption" role="status">Kontrollin profiiliteenuse ühendust…</p>
+    <p class="chart-note">Sisselogimine püsib selles vahelehes kuni väljalogimiseni või vahelehe sulgemiseni.</p>
+  </dialog>
+  <dialog id="settings-dialog" class="app-dialog settings-dialog" aria-labelledby="settings-heading">
+    <div class="dialog-heading"><div><p class="eyebrow">SINU VALIKUD</p><h2 id="settings-heading">Minu seaded</h2></div><button id="settings-close" class="icon-button" type="button" aria-label="Sulge seaded">✕</button></div>
+    <p class="section-caption">Salvestatud valikud kehtivad nii Päevavaates kui TradingView vaates. Kõigi profiilide teavitused jõuavad ühisesse GitHubi teavituste voogu.</p>
         <form id="research-form">
           <p class="section-caption">Sihthind on sinu valitud maksimaalne ostuhind USD-des. Kontrollime päeva sulgemishinda, mitte päevasisest puudutust. Tühi väli lülitab sihthinna välja.</p>
           <div class="settings-grid">
@@ -132,22 +167,9 @@
             <label>Kulu tehingu kohta, baaspunkti (10 = 0,10%)<input id="backtest-fee" type="number" min="0" max="500" step="any" value="10" required></label>
             <label>Võrdluse igakuine sissemakse, USD<input id="backtest-monthly" type="number" min="0.01" max="1000000" step="any" value="1000" required></label>
           </div>
-          <div class="settings-actions"><button id="settings-save" class="secondary" type="submit" disabled>Rakenda selles brauseris</button><button id="settings-export" class="secondary" type="button" disabled>Laadi settings.json alla</button></div>
+          <div class="settings-actions"><button id="settings-save" class="primary" type="submit" disabled>Rakenda selles brauseris</button><button id="settings-export" class="secondary" type="button" disabled>Laadi settings.json alla</button><p id="settings-status" class="section-caption" role="status">Laadin avaldatud seadistust…</p></div>
           <p id="legacy-settings-note" class="section-caption">Brauseri valikud ei muuda automaatikat. Teavituste muutmiseks asenda repos allalaaditud settings.json, tee commit ja push. GitHubis luba Watch → Custom → Issues ning meilisätted. Sellel lehel ei saadeta maaklerile ordereid.</p>
-          <p id="settings-status" class="section-caption" role="status">Laadin avaldatud seadistust…</p>
         </form>
-      </details>
-      <h3>Ajaloolised ostukandidaadid</h3>
-      <p id="backtest-period" class="section-caption">Laadin võrdlust…</p>
-      <div class="table-scroll"><table><thead><tr><th>Hoidmisaeg</th><th>Lõpetatud juhtumeid</th><th>Keskmine netomuutus</th><th>Positiivsete osakaal</th><th>Halvim ostujärgne langus</th></tr></thead><tbody id="backtest-results"></tbody></table></div>
-      <p class="chart-note">Ost toimub signaalile järgneva kauplemispäeva sulgemishinnaga; müük 5, 20 või 60 kauplemispäeva hiljem. Lõpetamata juhtumeid ei arvestata. Halvim langus mõõdab sulgemishindade langust ostust hoidmisaja lõpuni, enne kulusid. Juhtumite ajavahemikud võivad kattuda ega ole sõltumatud.</p>
-      <h3>Signaali ootamine või igakuine ostmine?</h3>
-      <p id="backtest-comparison" class="section-caption"></p>
-      <p id="backtest-cost" class="section-caption"></p>
-      <p class="chart-note">Mõlemad alustavad samal kuupäeval pärast 200 päeva eellugu ning saavad samad sissemaksed. Signaalistrateegia ostab kogunenud raha eest alles signaalile järgneval sulgemisel, teine ostab igakuiselt. Lõppväärtus sisaldab kasutamata raha ja positsiooni müügikulu. Raha intress, maksud ja valuutavahetus puuduvad; lubatud on aktsia murdosad. Korrigeeritud hinnad arvestavad dividende ja splitte, dividende eraldi juurde ei liideta. Võrdlus kasutab praegust viit aktsiat ja piiratud ajalugu ega ole sõltumatu strateegia tõestus.</p>
-      <details><summary>Vaata iga ajaloolise signaali tulemust</summary><div class="history-scroll"><table><thead><tr><th>Signaal</th><th>Ost</th><th>Hoidmispäevi</th><th>Müük</th><th>Netomuutus</th><th>Halvim langus</th></tr></thead><tbody id="backtest-trades"></tbody></table></div></details>
-    </section>
-    <footer><span>◉ Stock Radar <span class="footer-separator">/</span> Teadlikum ülevaade, päev korraga.</span><p>RSI ei ennusta kuu põhja ega taga tootlust. Tehnilised signaalid ei ole personaalne investeerimissoovitus.</p><a href="https://github.com/karlreispass/stock-radar" target="_blank" rel="noopener noreferrer">Vaata GitHubis ↗</a></footer>
-  </main>
+  </dialog>
 </body>
 </html>

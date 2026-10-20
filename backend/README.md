@@ -60,11 +60,15 @@ Profiiliteenust ei saa siinsetest tööriistadest enne sinu Cloudflare'i konto
 
 ## Kasutamine
 
-- Vali oma profiil, sisesta kood ja vajuta **Ava profiil**.
+- Vajuta paremal üleval **Logi sisse**, vali kasutaja ja sisesta profiili kood.
+- Profiilimenüüst ava **Minu seaded**. Valitud aktsia sihthinda saab muuta ka graafiku juures.
 - Muuda sihthindu või muid valikuid ning vajuta **Salvesta profiil**.
   Faili eksporti ega commit'i kasutajal vaja ei ole.
-- Profiilivahetus ja **Lukusta** tühjendavad koodi mälust ning lukustavad vormi.
-  Uuel lehe avamisel tuleb kood uuesti sisestada.
+- Sisselogimine säilib sama vahelehe Päevavaate ja TradingView vahel ning värskendamisel.
+  Kood on ainult mälus ja selle vahelehe `sessionStorage` salvestuses, mitte `localStorage` sees.
+  **Logi välja** ja **Vaheta kasutajat** eemaldavad sessiooni; vahelehe sulgemine lõpetab selle.
+  Brauseri sessiooni taastamise funktsioon võib taastada ka vahelehe sessiooni; jagatud seadmes logi välja.
+- Salvestamata muudatustest antakse märku; väljalogimisel või lehelt lahkumisel küsitakse kinnitust.
 - Profiilid on eraldi. Mitme inimese sama profiili muutmisel jääb kehtima
   viimane salvestatud versioon. KV muudatus võib teises asukohas nähtavaks saada
   ligikaudu minuti jooksul; järgmine päevane kontroll kasutab teenuses olevaid andmeid.

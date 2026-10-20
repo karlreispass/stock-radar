@@ -77,8 +77,9 @@ const projectRoot = path.resolve(__dirname, "..");
 async function loadPage(filename, options = {}) {
   const html = fs.readFileSync(path.join(projectRoot, filename), "utf8");
   const nodes = new Map(), saved = new Map();
+  const session = options.session ?? new Map();
   const baseSettings = JSON.parse(fs.readFileSync(path.join(projectRoot, "settings.json"), "utf8"));
-  const remoteProfiles = new Map(["user-1", "user-2", "user-3"].map((id) => [id, {
+  const remoteProfiles = options.remoteProfiles ?? new Map(["user-1", "user-2", "user-3"].map((id) => [id, {
     id, name: "Kasutaja " + id.at(-1), enabled: false, updated_at: null, settings: structuredClone(baseSettings)
   }]));
   let exported = null;
@@ -90,7 +91,8 @@ async function loadPage(filename, options = {}) {
       replaceChildren(...items) { this.children = items; },
       setAttribute(key, input) { this.attributes[key] = input; },
       addEventListener(event, callback) { this.handlers[event] = callback; },
-      click() { this.handlers.click?.(); },
+      click() { this.handlers.click?.({ preventDefault() {} }); },
+      showModal() { this.open = true; }, close() { this.open = false; },
       contains(target) { return this === target || this.children.some((item) => typeof item === "object" && item.contains(target)); }
     };
   }
@@ -103,6 +105,12 @@ async function loadPage(filename, options = {}) {
     createElement: node, createElementNS(ns, tag) { return node(tag); }, querySelector() { return meta; } };
   const context = vm.createContext({
     document, Intl, console, structuredClone, Blob, AbortSignal,
+    window: { addEventListener() {} }, confirm: () => options.confirmDiscard !== false,
+    sessionStorage: {
+      getItem(key) { if (options.sessionBlocked) throw Error("blocked"); return session.get(key) ?? null; },
+      setItem(key, value) { if (options.sessionBlocked) throw Error("blocked"); session.set(key, value); },
+      removeItem(key) { if (options.sessionBlocked) throw Error("blocked"); session.delete(key); }
+    },
     setTimeout(fn) { fn(); },
     URL: class extends URL { static createObjectURL(blob) { exported = blob; return "blob:test"; } static revokeObjectURL() {} },
     localStorage: {
@@ -117,6 +125,7 @@ async function loadPage(filename, options = {}) {
         const id = name.split("/").at(-1);
         if (optionsForRequest.headers.Authorization !== "Bearer " + id.at(-1).repeat(4)) return { ok: false, json: async () => ({ error: "Vale kood." }) };
         if (optionsForRequest.method === "PUT") {
+          if (options.saveGate) await options.saveGate;
           if (options.profileSaveFailure) return { ok: false, json: async () => ({ error: "Teenuse tõrge." }) };
           remoteProfiles.set(id, { id, name: "Kasutaja " + id.at(-1), enabled: true, updated_at: "2026-10-20T22:30:00Z", settings: JSON.parse(optionsForRequest.body) });
         }
@@ -131,7 +140,7 @@ async function loadPage(filename, options = {}) {
     vm.runInContext(fs.readFileSync(path.join(projectRoot, name), "utf8"), context);
   }
   await new Promise((resolve) => setImmediate(resolve));
-  return { context, nodes, saved, remoteProfiles, exported: () => exported };
+  return { context, nodes, saved, session, remoteProfiles, exported: () => exported };
 }
 
 test("both pages render research and preserve daily assessments when stocks change", async () => {
@@ -191,7 +200,7 @@ test("server profiles save without exporting a file and keep users separate", as
   page.nodes.get("target-KO").value = "60";
   await page.nodes.get("research-form").handlers.submit({ preventDefault() {} });
   assert.equal(page.remoteProfiles.get("user-1").settings.targets.KO, 60);
-  assert.match(page.nodes.get("settings-status").textContent, /salvestatud/);
+  assert.match(page.nodes.get("settings-status").textContent, /Salvestatud/);
   assert.equal(page.saved.has("stock-radar-settings"), false);
   page.nodes.get("profile-select").value = "user-2";
   page.nodes.get("profile-select").handlers.change();
@@ -213,4 +222,108 @@ test("failed server saves do not claim success or persist new local targets", as
   assert.match(page.nodes.get("settings-status").textContent, /ei õnnestunud/);
   assert.equal(page.remoteProfiles.get("user-1").settings.targets.KO, null);
   assert.equal(page.saved.has("stock-radar-settings"), false);
+});
+
+
+test("a signed-in session follows navigation and reload but logout clears it", async () => {
+  const first = await loadPage("index.html", { profileApi: true });
+  first.nodes.get("account-button").click();
+  assert.equal(first.nodes.get("login-dialog").open, true);
+  first.nodes.get("profile-select").value = "user-2";
+  first.nodes.get("profile-select").handlers.change();
+  first.nodes.get("profile-code").value = "2222";
+  await first.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  first.nodes.get("target-KO").value = "57";
+  await first.nodes.get("research-form").handlers.submit({ preventDefault() {} });
+  assert.equal(first.nodes.get("login-dialog").open, false);
+  assert.equal(first.saved.has("stock-radar-session"), false);
+  for (const filename of ["tradingview.html", "index.html"]) {
+    const next = await loadPage(filename, { profileApi: true, session: first.session, remoteProfiles: first.remoteProfiles });
+    assert.match(next.nodes.get("account-button").textContent, /Kasutaja 2/);
+    assert.equal(next.nodes.get("target-KO").value, "57");
+    assert.equal(next.nodes.get("quick-target").value, "57");
+    assert.equal(next.nodes.get("settings-save").disabled, false);
+  }
+  first.nodes.get("profile-lock").click();
+  assert.equal(first.session.has("stock-radar-session"), false);
+  assert.equal(first.nodes.get("target-KO").value, "");
+  const guest = await loadPage("tradingview.html", { profileApi: true, session: first.session });
+  assert.equal(guest.nodes.get("account-button").textContent, "Logi sisse");
+  assert.equal(guest.nodes.get("settings-save").disabled, true);
+});
+
+test("quick targets share settings, save the selected stock and preserve other targets", async () => {
+  const page = await loadPage("index.html", { profileApi: true });
+  page.nodes.get("profile-code").value = "1111";
+  await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  page.nodes.get("quick-target").value = "60";
+  page.nodes.get("quick-target").handlers.input();
+  assert.match(page.nodes.get("quick-save-status").textContent, /Salvestamata/);
+  page.nodes.get("stock-list").children[1].children[0].children[0].handlers.click();
+  assert.equal(page.nodes.get("quick-target").value, "");
+  assert.match(page.nodes.get("quick-target-label").textContent, /PEP/);
+  page.nodes.get("quick-target").value = "140";
+  await page.nodes.get("quick-target-form").handlers.submit({ preventDefault() {} });
+  const targets = page.remoteProfiles.get("user-1").settings.targets;
+  assert.equal(targets.KO, 60);
+  assert.equal(targets.PEP, 140);
+  assert.match(page.nodes.get("quick-save-status").textContent, /Salvestatud/);
+  page.nodes.get("quick-settings").click();
+  assert.equal(page.nodes.get("settings-dialog").open, true);
+});
+
+test("invalid restored sessions stay locked and blocked storage still permits manual sign-in", async () => {
+  const session = new Map([["stock-radar-session", JSON.stringify({ id: "user-3", code: "wrong" })]]);
+  const rejected = await loadPage("index.html", { profileApi: true, session });
+  assert.equal(rejected.nodes.get("settings-save").disabled, true);
+  assert.equal(session.has("stock-radar-session"), false);
+  assert.equal(rejected.nodes.get("profile-notice").hidden, false);
+  const blocked = await loadPage("tradingview.html", { profileApi: true, sessionBlocked: true });
+  blocked.nodes.get("profile-code").value = "1111";
+  await blocked.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  assert.equal(blocked.nodes.get("settings-save").disabled, false);
+  assert.equal(blocked.nodes.get("profile-notice").hidden, false);
+  assert.match(blocked.nodes.get("profile-notice").textContent, /uuesti sisse/);
+});
+
+test("switching profiles asks before discarding edits and clears old values after approval", async () => {
+  const page = await loadPage("index.html", { profileApi: true, confirmDiscard: false });
+  page.nodes.get("profile-code").value = "1111";
+  await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  page.nodes.get("target-KO").value = "55";
+  page.nodes.get("profile-switch").click();
+  assert.match(page.nodes.get("account-button").textContent, /Kasutaja 1/);
+  assert.equal(page.nodes.get("target-KO").value, "55");
+  const approved = await loadPage("index.html", { profileApi: true, session: page.session });
+  approved.nodes.get("target-KO").value = "55";
+  approved.nodes.get("profile-switch").click();
+  assert.equal(approved.nodes.get("target-KO").value, "");
+  assert.equal(approved.nodes.get("login-dialog").open, true);
+  assert.equal(approved.nodes.get("account-button").textContent, "Logi sisse");
+});
+
+
+test("a late save response cannot overwrite the newly signed-in profile", async () => {
+  let releaseSave;
+  const saveGate = new Promise((resolve) => { releaseSave = resolve; });
+  const page = await loadPage("index.html", { profileApi: true, saveGate });
+  page.nodes.get("profile-code").value = "1111";
+  await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  page.nodes.get("target-KO").value = "60";
+  const pendingSave = page.nodes.get("research-form").handlers.submit({ preventDefault() {} });
+  assert.equal(page.nodes.get("quick-target-save").disabled, true);
+  assert.equal(page.nodes.get("settings-save").textContent, "Salvestan…");
+  page.nodes.get("profile-switch").click();
+  page.nodes.get("profile-select").value = "user-2";
+  page.nodes.get("profile-select").handlers.change();
+  page.nodes.get("profile-code").value = "2222";
+  await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  releaseSave();
+  await pendingSave;
+  assert.match(page.nodes.get("account-button").textContent, /Kasutaja 2/);
+  assert.equal(page.nodes.get("target-KO").value, "");
+  assert.equal(page.nodes.get("settings-save").disabled, false);
+  assert.equal(page.nodes.get("settings-save").textContent, "Salvesta profiil");
+  assert.equal(page.remoteProfiles.get("user-1").settings.targets.KO, 60);
+  assert.equal(page.remoteProfiles.get("user-2").settings.targets.KO, null);
 });

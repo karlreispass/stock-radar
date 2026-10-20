@@ -221,3 +221,8 @@ Veebivaated toetavad profiile **Kasutaja 1**, **Kasutaja 2** ja **Kasutaja 3**.
 Taustateenus vajab omaniku ühekordset paigaldust: [juhend](backend/README.md).
 Pärast ühendamist saab kasutaja oma koodiga veebis sihthindu salvestada, ilma failide
 eksportimise või GitHubi kontota. Kõigi profiilide teavitused lähevad ühisesse Issue-voogu.
+
+Profiili avamiseks vajuta paremal üleval **Logi sisse**. **Minu seaded** sisaldab
+sihthindu, teavitusi ja võrdluse valikuid; valitud aktsia sihthinda saab muuta ka
+graafiku juures. Sisselogimine püsib sama vahelehe mõlema vaate vahel ja
+värskendamisel. **Logi välja** lõpetab sessiooni; salvestatud seaded jäävad teenusesse.

@@ -42,6 +42,8 @@ async function loadResearchSettings() {
     }
     setSettingsFields(researchSettings);
     showSettingsStatus();
+    byId("quick-target").disabled = false;
+    byId("quick-target-save").disabled = false;
     byId("settings-save").disabled = false;
     byId("settings-export").disabled = false;
     if (state.data) renderResearch(state.data.stocks.find((stock) => stock.symbol === state.symbol));
@@ -114,9 +116,14 @@ function renderResearch(stock) {
     byId("target-status").textContent = researchSettingsError || "Laadin sihthindade seadistust…";
     return;
   }
+  byId("quick-target-label").textContent = stock.symbol + " · sinu sihthind, USD";
+  byId("quick-target").value = byId("target-" + stock.symbol).value;
+  if (profileApiUrl && !profileAccessCode) {
+    byId("target-status").textContent = "Logi sisse, et näha " + stock.symbol + " sihthinda ja oma ostuplaani.";
+  }
   const target = researchSettings.targets[stock.symbol];
   const quote = latest.quote_close;
-  byId("target-status").textContent = target === null ? stock.symbol + ": sihthind määramata. Sisesta see allolevas seadistuses."
+  if (!profileApiUrl || profileAccessCode) byId("target-status").textContent = target === null ? stock.symbol + ": sihthind määramata. Soovi korral määra see siin."
     : !Number.isFinite(quote) ? "Sihthind $" + number.format(target) + ". Korrigeerimata sulgemishind puudub; värskenda päevaandmeid Actionsi kaudu."
     : stock.symbol + " sihthind $" + number.format(target) + " · sulgemishind $" + number.format(quote) + " · "
       + (quote <= target ? "sihthind saavutatud" : "sihthinnani " + number.format((1 - target / quote) * 100) + "% langust praegusest sulgemishinnast");

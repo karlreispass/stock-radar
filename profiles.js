@@ -1,32 +1,91 @@
 "use strict";
 
+const PROFILE_SESSION_KEY = "stock-radar-session";
 let profileApiUrl = "";
 let profileAccessCode = "";
 let profileRequestVersion = 0;
+let profileSaving = false;
+let profileSavedSettings = null;
 
 function profileName() { return "Kasutaja " + byId("profile-select").value.at(-1); }
 
 function setProfileEditing(enabled) {
-  byId("settings-save").disabled = !enabled;
-  const ids = ["backtest-fee", "backtest-monthly", "event-health"];
+  const ids = ["settings-save", "quick-target", "quick-target-save", "backtest-fee", "backtest-monthly", "event-health"];
   for (const symbol of ["KO", "PEP", "JNJ", "PG", "CL"]) ids.push("target-" + symbol);
   for (const kind of ["watch", "candidate", "target", "oversold", "recovery"]) ids.push("event-" + kind);
   for (const id of ids) byId(id).disabled = !enabled;
 }
 
+function setSaveStatus(message) {
+  byId("settings-status").textContent = message;
+  byId("quick-save-status").textContent = message;
+}
+
+function hasProfileChanges() {
+  if (!profileSavedSettings) return false;
+  try { return JSON.stringify(readSettingsForm()) !== JSON.stringify(profileSavedSettings); }
+  catch { return true; }
+}
+
+function markProfileChanges() {
+  if (profileSaving) return;
+  setSaveStatus(hasProfileChanges() ? "Salvestamata muudatused" : "Muudatusi ei ole.");
+}
+
+function refreshProfileView() {
+  const loggedIn = Boolean(profileAccessCode);
+  byId("account-button").textContent = loggedIn ? profileName() + " ▾" : "Logi sisse";
+  byId("account-caption").textContent = profileName();
+  byId("account-actions").hidden = !loggedIn;
+  byId("profile-context").textContent = loggedIn ? profileName() + " · sinu sihthinnad ja valikud" : "Külalisvaade · oma sihthindade jaoks logi sisse";
+  byId("open-settings").textContent = loggedIn || !profileApiUrl ? "Minu seaded" : "Logi sisse";
+  byId("settings-heading").textContent = loggedIn ? profileName() + " · seaded" : "Minu seaded";
+  byId("quick-target-form").hidden = Boolean(profileApiUrl && !loggedIn);
+  byId("target-login").hidden = !profileApiUrl || loggedIn;
+  if (state.data) renderResearch(state.data.stocks.find((stock) => stock.symbol === state.symbol));
+}
+
+function clearProfileSession() {
+  try { sessionStorage.removeItem(PROFILE_SESSION_KEY); } catch {}
+}
+
 function resetProfile() {
   profileRequestVersion++;
   profileAccessCode = "";
+  profileSavedSettings = null;
+  profileSaving = false;
+  byId("settings-save").textContent = "Salvesta profiil";
+  byId("quick-target-save").textContent = "Salvesta muudatused";
+  clearProfileSession();
   byId("profile-code").value = "";
+  byId("profile-unlock").disabled = !profileApiUrl;
+  byId("account-menu").open = false;
   setProfileEditing(false);
-  // Do not display the previous user's targets under the newly selected name.
+  // Clear the previous user's values before displaying another profile.
   researchSettings = structuredClone(researchPublishedSettings);
   for (const symbol of Object.keys(researchSettings.targets)) researchSettings.targets[symbol] = null;
   setSettingsFields(researchSettings);
-  byId("profile-status").textContent = profileName() + " valitud. Sisesta profiili kood.";
-  byId("settings-status").textContent = "Profiil on lukus. Muutmiseks ava see oma koodiga.";
-  if (state.data) renderResearch(state.data.stocks.find((stock) => stock.symbol === state.symbol));
-  try { localStorage.setItem("stock-radar-profile", byId("profile-select").value); } catch {}
+  byId("profile-status").textContent = "Vali kasutaja ja sisesta profiili kood.";
+  setSaveStatus("Sihthindade ja teavituste muutmiseks logi sisse.");
+  refreshProfileView();
+}
+
+function showLogin() {
+  byId("account-menu").open = false;
+  byId("login-dialog").showModal();
+}
+
+function showProfileSettings() {
+  byId("account-menu").open = false;
+  if (profileApiUrl && !profileAccessCode) { showLogin(); return; }
+  byId("settings-dialog").showModal();
+}
+
+function logoutProfile() {
+  if (hasProfileChanges() && !confirm("Sul on salvestamata muudatusi. Kas logid välja ja loobud neist?")) return false;
+  byId("settings-dialog").close();
+  resetProfile();
+  return true;
 }
 
 async function profileRequest(id, code, settings) {
@@ -44,54 +103,109 @@ async function profileRequest(id, code, settings) {
   return record;
 }
 
+async function signInProfile(id, code) {
+  const version = ++profileRequestVersion;
+  byId("profile-unlock").disabled = true;
+  byId("profile-status").textContent = "Login sisse…";
+  try {
+    const record = await profileRequest(id, code);
+    if (version !== profileRequestVersion) return;
+    profileAccessCode = code;
+    researchSettings = structuredClone(record.settings);
+    profileSavedSettings = structuredClone(record.settings);
+    setSettingsFields(researchSettings);
+    setProfileEditing(true);
+    byId("profile-code").value = "";
+    byId("profile-status").textContent = profileName() + " sisse logitud.";
+    byId("profile-notice").hidden = true;
+    try { sessionStorage.setItem(PROFILE_SESSION_KEY, JSON.stringify({ id, code })); }
+    catch {
+      byId("profile-notice").hidden = false;
+      byId("profile-notice").textContent = "Brauser ei luba sessiooni salvestada. Vaate vahetamisel pead uuesti sisse logima.";
+    }
+    setSaveStatus(record.enabled ? "Salvestatud valikud on laaditud." : "Salvesta profiil, et aktiveerida selle teavitused.");
+    refreshProfileView();
+    byId("login-dialog").close();
+  } catch (error) {
+    if (version !== profileRequestVersion) return;
+    clearProfileSession();
+    byId("profile-status").textContent = error.message || "Sisselogimine ebaõnnestus.";
+    throw error;
+  } finally {
+    if (version === profileRequestVersion) byId("profile-unlock").disabled = false;
+  }
+}
+
 async function unlockProfile(event) {
   event.preventDefault();
   if (!profileApiUrl) return;
   const code = byId("profile-code").value.trim();
   if (code.length < 4) { byId("profile-status").textContent = "Sisesta vähemalt 4 märgiga profiili kood."; return; }
-  const id = byId("profile-select").value;
-  const version = ++profileRequestVersion;
-  profileAccessCode = "";
-  setProfileEditing(false);
-  byId("profile-status").textContent = "Laadin profiili…";
-  try {
-    const record = await profileRequest(id, code);
-    if (version !== profileRequestVersion) return;
-    profileAccessCode = code;
-    byId("profile-code").value = "";
-    researchSettings = structuredClone(record.settings);
-    setSettingsFields(researchSettings);
-    setProfileEditing(true);
-    byId("profile-status").textContent = profileName() + " avatud. " + (record.enabled
-      ? "Valikud on salvestatud teenusesse."
-      : "Esimene salvestamine aktiveerib selle profiili teavitused.");
-    byId("settings-status").textContent = "Muuda valikuid ja vajuta „Salvesta profiil”. Kõigi kolme profiili teavitused jõuavad ühisesse repo Issue-voogu.";
-    if (state.data) renderResearch(state.data.stocks.find((stock) => stock.symbol === state.symbol));
-  } catch (error) {
-    if (version === profileRequestVersion) byId("profile-status").textContent = error.message || "Profiili avamine ebaõnnestus.";
-  }
+  try { await signInProfile(byId("profile-select").value, code); }
+  catch { /* The login dialog displays the error and stays open. */ }
 }
 
 async function saveServerProfile(event) {
   event.preventDefault();
-  if (!profileAccessCode) { byId("settings-status").textContent = "Ava kõigepealt profiil oma koodiga."; return; }
+  if (!profileAccessCode || profileSaving) return;
   const version = profileRequestVersion;
   const id = byId("profile-select").value;
-  byId("settings-save").disabled = true;
+  profileSaving = true;
+  setProfileEditing(false);
+  setSaveStatus("Salvestan…");
+  byId("settings-save").textContent = "Salvestan…";
+  byId("quick-target-save").textContent = "Salvestan…";
   try {
     const settings = readSettingsForm();
     const record = await profileRequest(id, profileAccessCode, settings);
     if (version !== profileRequestVersion) return;
     researchSettings = structuredClone(record.settings);
+    profileSavedSettings = structuredClone(record.settings);
     setSettingsFields(researchSettings);
-    byId("settings-status").textContent = profileName() + " salvestatud. Järgmine päevane Actionsi kontroll kasutab neid valikuid; faili ega commit’i pole vaja.";
-    byId("profile-status").textContent = profileName() + " · salvestatud " + new Date(record.updated_at).toLocaleString("et-EE");
-    if (state.data) renderResearch(state.data.stocks.find((stock) => stock.symbol === state.symbol));
+    setSaveStatus("Salvestatud · " + new Date(record.updated_at).toLocaleTimeString("et-EE") + ". Valikud kehtivad mõlemas vaates.");
+    refreshProfileView();
   } catch (error) {
-    if (version === profileRequestVersion) byId("settings-status").textContent = "Salvestamine ei õnnestunud: " + error.message + " Teenusesse salvestamist ei ole kinnitatud.";
+    if (version === profileRequestVersion) setSaveStatus("Salvestamine ei õnnestunud: " + error.message + " Muudatused on salvestamata. Proovi uuesti.");
   } finally {
-    if (version === profileRequestVersion) byId("settings-save").disabled = false;
+    if (version === profileRequestVersion) {
+      profileSaving = false;
+      byId("settings-save").textContent = "Salvesta profiil";
+      byId("quick-target-save").textContent = "Salvesta muudatused";
+      setProfileEditing(true);
+    }
   }
+}
+
+function syncQuickTarget() {
+  byId("target-" + state.symbol).value = byId("quick-target").value;
+  markProfileChanges();
+}
+
+function setupProfileControls() {
+  byId("account-button").addEventListener("click", (event) => {
+    if (!profileAccessCode) { event.preventDefault(); showLogin(); }
+  });
+  byId("account-settings").addEventListener("click", showProfileSettings);
+  byId("open-settings").addEventListener("click", showProfileSettings);
+  byId("quick-settings").addEventListener("click", showProfileSettings);
+  byId("target-login").addEventListener("click", showLogin);
+  byId("login-close").addEventListener("click", () => byId("login-dialog").close());
+  byId("settings-close").addEventListener("click", () => byId("settings-dialog").close());
+  byId("profile-form").addEventListener("submit", unlockProfile);
+  byId("profile-select").addEventListener("change", resetProfile);
+  byId("profile-lock").addEventListener("click", logoutProfile);
+  byId("profile-switch").addEventListener("click", () => { if (logoutProfile()) showLogin(); });
+  byId("research-form").addEventListener("input", () => {
+    byId("quick-target").value = byId("target-" + state.symbol).value;
+    markProfileChanges();
+  });
+  byId("quick-target").addEventListener("input", syncQuickTarget);
+  byId("quick-target-form").addEventListener("submit", (event) => { syncQuickTarget(); return saveResearchSettings(event); });
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasProfileChanges()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
 }
 
 async function loadProfileService() {
@@ -100,27 +214,36 @@ async function loadProfileService() {
     if (!response.ok) throw new Error("Profiiliteenuse seadistust ei saanud laadida.");
     const config = await response.json();
     if (!config.api_url) {
-      byId("profile-status").textContent = "Profiiliteenus pole veel ühendatud. Praegu töötavad ainult brauseri valikud ja repo senised teavitused.";
+      byId("profile-status").textContent = "Profiiliteenus pole ühendatud. Seaded töötavad ainult selles brauseris.";
+      refreshProfileView();
       return;
     }
     const url = new URL(config.api_url);
     if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error("Profiiliteenuse aadress ei sobi.");
-    if (!researchPublishedSettings) throw new Error("Oota päevaandmete seadistuse edukat laadimist.");
+    if (!researchPublishedSettings) throw new Error("Päevaandmete seadistust ei saanud laadida.");
     profileApiUrl = url.origin;
     byId("profile-select").value = "user-1";
     byId("profile-select").disabled = false;
     byId("profile-code").disabled = false;
-    byId("profile-unlock").disabled = false;
-    byId("profile-lock").disabled = false;
     byId("settings-save").textContent = "Salvesta profiil";
     byId("settings-export").hidden = true;
     byId("legacy-settings-note").hidden = true;
-    try {
-      const saved = localStorage.getItem("stock-radar-profile");
-      if (["user-1", "user-2", "user-3"].includes(saved)) byId("profile-select").value = saved;
-    } catch {}
+    let session = null;
+    try { session = JSON.parse(sessionStorage.getItem(PROFILE_SESSION_KEY)); } catch {}
     resetProfile();
+    if (session && ["user-1", "user-2", "user-3"].includes(session.id) && typeof session.code === "string" && session.code.length >= 4) {
+      byId("profile-select").value = session.id;
+      try { await signInProfile(session.id, session.code); }
+      catch {
+        byId("profile-notice").hidden = false;
+        byId("profile-notice").textContent = "Sisselogimist ei saanud taastada. Logi paremal üleval uuesti sisse. " + byId("profile-status").textContent;
+      }
+    }
   } catch (error) {
     byId("profile-status").textContent = error.message + " Profiilide salvestamine pole saadaval.";
+    byId("profile-notice").hidden = false;
+    byId("profile-notice").textContent = byId("profile-status").textContent;
+    // Never offer local saving as if it updated a configured remote profile.
+    setProfileEditing(false);
   }
 }
