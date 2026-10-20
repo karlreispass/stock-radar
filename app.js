@@ -13,13 +13,68 @@ function formatDate(value) {
 function signalFor(current, previous) {
   if (current === null) return { label: "Andmeid vähe", kind: "", description: "RSI arvutamiseks on vaja rohkem ajalugu." };
   if (current < 30) return { label: "RSI alla 30", kind: "low", description: "RSI on alla 30. Tugev müügisurve võib jätkuda; see ei kinnita hinnapõhja." };
-  if (previous !== null && previous < 30 && current >= 30) return { label: "Taastumine", kind: "recovery", description: "RSI tõusis pärast alla 30 käimist tagasi vähemalt 30 peale. Võimalik hoo muutus vajab edasist kinnitust." };
   if (current > 70) return { label: "RSI üle 70", kind: "high", description: "RSI on üle 70. Tugev ostuhoog võib püsida; see ei ole automaatne müügisignaal." };
-  return { label: "Neutraalne", kind: "", description: "RSI jääb vahemikku 30–70 ja viimase päevaga taastumise tingimus ei täitunud." };
+  if (current < 40) return { label: "Jälgimisalas", kind: "watch", description: "RSI on alla 40. Võimaliku taastumise hindamiseks vaata ka hinna ja RSI suunda." };
+  return { label: "Neutraalne", kind: "", description: "RSI on vahemikus 40–70." };
 }
 
 function stockSignal(stock) {
   return signalFor(stock.history.at(-1).rsi, stock.history.at(-2)?.rsi ?? null);
+}
+
+
+function movingAverage(history, index) {
+  if (index < 19) return null;
+  const prices = history.slice(index - 19, index + 1);
+  return prices.reduce((sum, point) => sum + point.close, 0) / 20;
+}
+
+function analyzeStock(stock) {
+  const history = stock.history;
+  const index = history.length - 1;
+  const latest = history[index];
+  const baseline = history[index - 5];
+  const average = movingAverage(history, index);
+  const previousAverage = movingAverage(history, index - 1);
+  if (!baseline || baseline.rsi === null || average === null || previousAverage === null) {
+    return { label: "Andmeid vähe", kind: "", description: "Hinnanguks on vaja vähemalt 21 sulgemishinda ja RSI väärtusi viie kauplemispäeva vahega.", priceChange: null, rsiChange: null, average };
+  }
+  const priceChange = (latest.close / baseline.close - 1) * 100;
+  const rsiChange = latest.rsi - baseline.rsi;
+  const recentlyLow = history.slice(-5).some((point) => point.rsi !== null && point.rsi < 40);
+  const crossedAverage = latest.close > average && history[index - 1].close <= previousAverage;
+  let label = "Selge signaal puudub", kind = "";
+  if (recentlyLow && rsiChange > 0 && crossedAverage) {
+    label = "Võimalik ostukandidaat";
+    kind = "low";
+  } else if (recentlyLow && rsiChange > 0 && priceChange > 0) {
+    label = "Taastumise märgid";
+    kind = "recovery";
+  } else if (priceChange < 0 && rsiChange < 0) {
+    label = "Langussurve jätkub";
+    kind = "high";
+  } else if (latest.rsi < 40) {
+    label = "Jälgimisalas";
+    kind = "watch";
+  }
+  const description = "RSI viimase viie kauplemispäeva jooksul alla 40: " + (recentlyLow ? "jah" : "ei")
+    + ". RSI kõrgem kui viis kauplemispäeva tagasi: " + (rsiChange > 0 ? "jah" : "ei")
+    + ". Hind ületas viimasel kauplemispäeval 20 päeva keskmise: " + (crossedAverage ? "jah" : "ei")
+    + ". Ostukandidaadi jaoks peavad kõik kolm tingimust täituma. See on ajalooliselt kontrollimata tehniline filter.";
+  return { label, kind, description, priceChange, rsiChange, average };
+}
+
+function directionText(change, unit) {
+  if (change === null) return "Andmeid vähe";
+  const direction = change > 0 ? "Tõuseb" : change < 0 ? "Langeb" : "Muutumatu";
+  return direction + " " + (change > 0 ? "+" : "") + number.format(change) + unit;
+}
+
+function trendCell(change, unit) {
+  const cell = element("td", "trend-cell");
+  cell.append(element("strong", change > 0 ? "positive" : change < 0 ? "negative" : "", directionText(change, unit)));
+  cell.append(element("small", "", "5 kauplemispäeva"));
+  return cell;
 }
 
 function element(tag, className, value) {
@@ -32,8 +87,8 @@ function element(tag, className, value) {
 function renderOverview() {
   const stocks = state.data.stocks;
   byId("stock-count").textContent = stocks.length;
-  byId("low-count").textContent = stocks.filter((stock) => stockSignal(stock).kind === "low").length;
-  byId("recovery-count").textContent = stocks.filter((stock) => stockSignal(stock).kind === "recovery").length;
+  byId("low-count").textContent = stocks.filter((stock) => stock.history.at(-1).rsi < 40).length;
+  byId("recovery-count").textContent = stocks.filter((stock) => analyzeStock(stock).label === "Võimalik ostukandidaat").length;
   const dates = stocks.map((stock) => stock.history.at(-1).date).sort();
   byId("data-date").textContent = formatDate(dates[0]);
   byId("updated-at").textContent = "Laaditud " + new Date(state.data.generated_at).toLocaleString("et-EE");
@@ -60,6 +115,7 @@ function renderStocks() {
     const previous = stock.history.at(-2);
     const change = (latest.close / previous.close - 1) * 100;
     const signal = stockSignal(stock);
+    const analysis = analyzeStock(stock);
     const row = element("tr", "stock-row" + (stock.symbol === state.symbol ? " selected" : ""));
     const nameCell = element("td");
     const button = element("button", "ticker-button");
@@ -76,9 +132,11 @@ function renderStocks() {
     const priceCell = element("td", "price-cell");
     priceCell.append(element("strong", "", "$" + number.format(latest.close)), element("small", change >= 0 ? "positive" : "negative", (change >= 0 ? "+" : "") + number.format(change) + "%"));
     const rsiCell = element("td", "rsi-number" + (signal.kind === "low" ? " positive" : ""), decimal.format(latest.rsi));
+    rsiCell.append(element("small", "rsi-status", signal.label));
     const signalCell = element("td");
-    signalCell.append(element("span", "badge " + signal.kind, signal.label));
-    row.append(nameCell, priceCell, rsiCell, signalCell);
+    signalCell.append(element("span", "badge " + analysis.kind, analysis.label));
+    signalCell.title = analysis.description;
+    row.append(nameCell, priceCell, rsiCell, trendCell(analysis.priceChange, "%"), trendCell(analysis.rsiChange, " p"), signalCell);
     body.append(row);
   }
 }
@@ -100,16 +158,17 @@ function renderChart(containerId, points, field) {
   container.replaceChildren();
   if (valid.length < 2) { container.textContent = "Graafiku jaoks pole piisavalt andmeid."; return; }
   const values = valid.map((point) => point[field]);
+  if (!isRsi) values.push(...points.filter((point) => point.average !== null).map((point) => point.average));
   const minimum = isRsi ? 0 : Math.min(...values) * 0.985;
   const maximum = isRsi ? 100 : Math.max(...values) * 1.015;
   const x = (index) => left + index / (points.length - 1) * (width - left - right);
   const y = (value) => top + (maximum - value) / (maximum - minimum) * (height - top - bottom);
-  const svg = svgElement("svg", { viewBox: "0 0 " + width + " " + height, role: "img", "aria-label": isRsi ? "RSI graafik, piirid 30 ja 70. Päevaväärtused on all tabelis." : "Korrigeeritud sulgemishinna graafik. Päevaväärtused on all tabelis." });
-  const levels = isRsi ? [30, 50, 70] : [minimum, (minimum + maximum) / 2, maximum];
-  if (isRsi) svg.append(svgElement("rect", { x: left, y: y(30), width: width - left - right, height: y(0) - y(30), fill: "#c1ed8a", opacity: ".035" }));
+  const svg = svgElement("svg", { viewBox: "0 0 " + width + " " + height, role: "img", "aria-label": isRsi ? "RSI graafik, piirid 30, 40 ja 70. Päevaväärtused on all tabelis." : "Korrigeeritud sulgemishinna ja 20 päeva keskmise graafik. Päevaväärtused on all tabelis." });
+  const levels = isRsi ? [30, 40, 70] : [minimum, (minimum + maximum) / 2, maximum];
+  if (isRsi) svg.append(svgElement("rect", { x: left, y: y(40), width: width - left - right, height: y(0) - y(40), fill: "var(--green)", opacity: ".035" }));
   for (const level of levels) {
-    svg.append(svgElement("line", { x1: left, y1: y(level), x2: width - right + 4, y2: y(level), stroke: "#344139", "stroke-dasharray": isRsi && level !== 50 ? "5 5" : "2 6" }));
-    svg.append(svgElement("text", { x: width - right + 15, y: y(level) + 4, fill: "#9aaba1", "font-size": 11 }, isRsi ? String(level) : number.format(level)));
+    svg.append(svgElement("line", { x1: left, y1: y(level), x2: width - right + 4, y2: y(level), stroke: "var(--chart-grid)", "stroke-dasharray": isRsi ? "5 5" : "2 6" }));
+    svg.append(svgElement("text", { x: width - right + 15, y: y(level) + 4, fill: "var(--muted)", "font-size": 11 }, isRsi ? String(level) : number.format(level)));
   }
   const coordinates = [];
   points.forEach((point, index) => {
@@ -118,21 +177,27 @@ function renderChart(containerId, points, field) {
   const path = coordinates.map(([px, py], index) => (index ? "L" : "M") + px.toFixed(2) + "," + py.toFixed(2)).join(" ");
   if (!isRsi) {
     const base = height - bottom;
-    svg.append(svgElement("path", { d: path + " L" + coordinates.at(-1)[0] + "," + base + " L" + coordinates[0][0] + "," + base + " Z", fill: "#c1ed8a", opacity: ".055" }));
+    svg.append(svgElement("path", { d: path + " L" + coordinates.at(-1)[0] + "," + base + " L" + coordinates[0][0] + "," + base + " Z", fill: "var(--green)", opacity: ".055" }));
   }
-  svg.append(svgElement("path", { d: path, fill: "none", stroke: isRsi ? "#b8c9ac" : "#c1ed8a", "stroke-width": 2.2, "stroke-linejoin": "round" }));
+  svg.append(svgElement("path", { d: path, fill: "none", stroke: isRsi ? "var(--rsi-line)" : "var(--green)", "stroke-width": 2.2, "stroke-linejoin": "round" }));
+  if (!isRsi) {
+    const averagePath = points.map((point, index) => ({ point, index }))
+      .filter(({ point }) => point.average !== null)
+      .map(({ point, index }, pathIndex) => (pathIndex ? "L" : "M") + x(index).toFixed(2) + "," + y(point.average).toFixed(2)).join(" ");
+    svg.append(svgElement("path", { d: averagePath, fill: "none", stroke: "var(--amber)", "stroke-width": 2, "stroke-dasharray": "6 4" }));
+  }
   points.forEach((point, index) => {
     if (point[field] === null) return;
     const signal = signalFor(point.rsi, point.previousRsi);
-    if (isRsi && ["low", "recovery"].includes(signal.kind)) {
-      const marker = svgElement("circle", { cx: x(index), cy: y(point.rsi), r: 3, fill: signal.kind === "low" ? "#c1ed8a" : "#e4bf78" });
+    if (isRsi && ["low", "watch"].includes(signal.kind)) {
+      const marker = svgElement("circle", { cx: x(index), cy: y(point.rsi), r: 3, fill: signal.kind === "low" ? "var(--green)" : "var(--amber)" });
       marker.append(svgElement("title", {}, formatDate(point.date) + " · RSI " + decimal.format(point.rsi) + " · " + signal.label));
       svg.append(marker);
     }
   });
   for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
     const index = Math.round((points.length - 1) * fraction);
-    svg.append(svgElement("text", { x: x(index), y: height - 5, fill: "#9aaba1", "font-size": 10, "text-anchor": fraction === 0 ? "start" : fraction === 1 ? "end" : "middle" }, points[index].date.slice(5).split("-").reverse().join(".")));
+    svg.append(svgElement("text", { x: x(index), y: height - 5, fill: "var(--muted)", "font-size": 10, "text-anchor": fraction === 0 ? "start" : fraction === 1 ? "end" : "middle" }, points[index].date.slice(5).split("-").reverse().join(".")));
   }
   container.append(svg);
 }
@@ -142,12 +207,18 @@ function renderDetail() {
   const latest = stock.history.at(-1);
   const cutoff = new Date(latest.date + "T00:00:00Z");
   cutoff.setUTCDate(cutoff.getUTCDate() - state.days);
-  const points = stock.history.map((point, index) => ({ ...point, previousRsi: stock.history[index - 1]?.rsi ?? null })).filter((point) => Date.parse(point.date) >= cutoff.getTime());
+  const points = stock.history.map((point, index) => ({ ...point, previousRsi: stock.history[index - 1]?.rsi ?? null, average: movingAverage(stock.history, index) })).filter((point) => Date.parse(point.date) >= cutoff.getTime());
   byId("detail-title").textContent = stock.name + " · " + stock.symbol;
   byId("detail-subtitle").textContent = stock.sector + " · Viimane kauplemispäev " + formatDate(latest.date);
   byId("detail-price").textContent = "$" + number.format(latest.close);
   byId("detail-rsi").textContent = decimal.format(latest.rsi);
-  byId("signal-description").textContent = stockSignal(stock).description;
+  const analysis = analyzeStock(stock);
+  byId("assessment-title").textContent = analysis.label;
+  byId("signal-description").textContent = analysis.description;
+  byId("price-trend").textContent = directionText(analysis.priceChange, "%");
+  byId("rsi-trend").textContent = directionText(analysis.rsiChange, " punkti");
+  byId("average-position").textContent = analysis.average === null ? "Andmeid vähe"
+    : (latest.close > analysis.average ? "Üle keskmise" : latest.close < analysis.average ? "Alla keskmise" : "Keskmisega võrdne") + " · $" + number.format(analysis.average);
   const monthStart = Date.parse(latest.date) - 29 * 86400000;
   const recent = stock.history.filter((point) => Date.parse(point.date) >= monthStart && point.rsi !== null);
   const lowest = recent.reduce((best, point) => point.rsi < best.rsi ? point : best);
@@ -200,6 +271,29 @@ async function loadData() {
     button.disabled = false;
   }
 }
+
+
+function updateThemeButton() {
+  const isLight = document.documentElement.dataset.theme === "light";
+  const button = byId("theme-toggle");
+  button.textContent = isLight ? "Tume teema" : "Hele teema";
+  button.setAttribute("aria-pressed", String(isLight));
+}
+
+function toggleTheme() {
+  const theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]').content = theme === "light" ? "#f7f9f5" : "#101817";
+  updateThemeButton();
+  try {
+    localStorage.setItem("stock-radar-theme", theme);
+  } catch {
+    // Changing the theme must work even when browser storage is blocked.
+  }
+}
+
+byId("theme-toggle").addEventListener("click", toggleTheme);
+updateThemeButton();
 
 byId("refresh").addEventListener("click", loadData);
 byId("ranges").addEventListener("click", (event) => {
