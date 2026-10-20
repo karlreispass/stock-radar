@@ -224,8 +224,13 @@ function renderDetail() {
   const lowest = recent.reduce((best, point) => point.rsi < best.rsi ? point : best);
   const highest = Math.max(...recent.map((point) => point.rsi));
   byId("rsi-range").textContent = decimal.format(lowest.rsi) + "–" + decimal.format(highest) + " · madalaim " + formatDate(lowest.date) + ". Käimasoleva kuu põhi pole ette teada.";
-  renderChart("price-chart", points, "close");
-  renderChart("rsi-chart", points, "rsi");
+  if (byId("tradingview-chart")) {
+    renderTradingView(stock.symbol);
+    byId("snapshot-date").textContent = (state.data.mode === "demo" ? "NÄIDISANDMED · " : "") + "Hinnangu kauplemispäev: " + formatDate(latest.date);
+  } else {
+    renderChart("price-chart", points, "close");
+    renderChart("rsi-chart", points, "rsi");
+  }
   const history = byId("history-list");
   history.replaceChildren();
   for (let index = points.length - 1; index >= 0; index--) {
@@ -285,6 +290,7 @@ function toggleTheme() {
   document.documentElement.dataset.theme = theme;
   document.querySelector('meta[name="theme-color"]').content = theme === "light" ? "#f7f9f5" : "#101817";
   updateThemeButton();
+  if (byId("tradingview-chart")) renderTradingView(state.symbol);
   try {
     localStorage.setItem("stock-radar-theme", theme);
   } catch {
@@ -296,7 +302,7 @@ byId("theme-toggle").addEventListener("click", toggleTheme);
 updateThemeButton();
 
 byId("refresh").addEventListener("click", loadData);
-byId("ranges").addEventListener("click", (event) => {
+byId("ranges")?.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-days]");
   if (!button) return;
   state.days = Number(button.dataset.days);

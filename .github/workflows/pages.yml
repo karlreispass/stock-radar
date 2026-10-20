@@ -34,12 +34,13 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
       - run: node --check app.js
+      - run: node --check tradingview.js
       - name: Download completed daily prices and calculate RSI
         run: python scripts/update_data.py
       - name: Prepare static website
         run: |
           mkdir -p site/data
-          cp index.html styles.css app.js site/
+          cp index.html tradingview.html styles.css app.js tradingview.js site/
           cp data/stocks.json site/data/
       - name: Save market data for RSI notifications
         uses: actions/upload-artifact@v4
