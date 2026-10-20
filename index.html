@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="et">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101817">
+  <meta name="description" content="Viie aktsia hinnad, RSI ja selgitatud tehnilised signaalid.">
+  <title>Stock Radar · RSI jälgija</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./"><span class="brand-icon" aria-hidden="true">◉</span> stock<span>radar</span></a>
+    <span class="header-label">Sinu turuvaade</span>
+    <span class="market-label"><span class="dot"></span> USA aktsiad · USD</span>
+  </header>
+  <main>
+    <div class="page-heading">
+      <div><p class="eyebrow">VÄHEM MÜRA. ROHKEM ÜLEVAADET.</p><h1>Hoia ostuhetkel silm peal<span>.</span></h1>
+      <p class="intro">Viis tuttavat ettevõtet. Päevased hinnad ja RSI signaalid ühes vaates.</p></div>
+      <button id="refresh" class="secondary" type="button">↻ Laadi vaade uuesti</button>
+    </div>
+    <div id="notice" class="notice" role="status">Laadin andmeid…</div>
+    <section class="metrics" aria-label="Turu ülevaade">
+      <article><span>Jälgitavad aktsiad</span><strong id="stock-count">—</strong><small>Tarbekaupade ja tervishoiu ettevõtted</small></article>
+      <article><span>RSI alla 30</span><strong id="low-count">—</strong><small>Ülemüüdud piirkonnas</small></article>
+      <article><span>Taastumine üle 30</span><strong id="recovery-count">—</strong><small>Viimase lõppenud päeva signaal</small></article>
+      <article><span>Andmete seis</span><strong id="data-date" class="date-value">—</strong><small id="updated-at">Päevased sulgemisandmed</small></article>
+    </section>
+    <div class="workspace">
+      <section class="panel watchlist">
+        <div class="panel-heading"><div><p class="eyebrow">SINU JÄLGIMISNIMEKIRI</p><h2>Aktsiate radar</h2></div><span class="pill">RSI 14</span></div>
+        <p class="section-caption">Vali aktsia, et uurida hinna ja RSI liikumist.</p>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Ettevõte</th><th>Hind / muutus</th><th>RSI</th><th>Signaal</th></tr></thead>
+          <tbody id="stock-list"></tbody>
+        </table></div>
+        <div class="table-footer"><span class="dot"></span> Signaalid uuenevad koos päevaandmetega</div>
+      </section>
+      <aside class="panel insight">
+        <p class="eyebrow">KUIDAS SEDA LUGEDA?</p><h2>RSI annab vihje.<br>Otsus jääb sulle.</h2>
+        <div class="rsi-scale"><span>Madal</span><span>Neutraalne</span><span>Kõrge</span></div>
+        <div class="scale-bar"></div><div class="scale-ticks"><span>0</span><span>30</span><span>70</span><span>100</span></div>
+        <div class="legend-row"><i class="legend-dot green"></i><div><strong>Alla 30 · ülemüüdud</strong><p>Müügisurve on olnud tugev. Hind võib veel langeda.</p></div></div>
+        <div class="legend-row"><i class="legend-dot amber"></i><div><strong>Tagasi üle 30 · taastumine</strong><p>Võimalik hoo muutus pärast ülemüüdud piirkonda.</p></div></div>
+        <div class="legend-row"><i class="legend-dot muted"></i><div><strong>Üle 70 · üleostetud</strong><p>Ostuhoog on olnud tugev. See ei määra müügihetke.</p></div></div>
+      </aside>
+    </div>
+    <section id="detail" class="panel detail" aria-label="Valitud aktsia detailid">
+      <div class="detail-heading"><div><p class="eyebrow">LÄHEM VAADE</p><h2 id="detail-title">Vali aktsia</h2><p id="detail-subtitle" class="section-caption"></p></div>
+        <div id="ranges" class="range-controls" role="group" aria-label="Graafiku ajavahemik">
+          <button data-days="30" aria-pressed="false">1 kuu</button><button data-days="90" aria-pressed="true" class="active">3 kuud</button><button data-days="365" aria-pressed="false">1 aasta</button>
+        </div>
+      </div>
+      <div class="chart-label"><span>Korrigeeritud sulgemishind · USD</span><strong id="detail-price">—</strong></div>
+      <div id="price-chart" class="chart"></div>
+      <div class="chart-label rsi-label"><span>RSI (14) <span class="chart-key">─ 30 / 70 piirid</span></span><strong id="detail-rsi">—</strong></div>
+      <div id="rsi-chart" class="chart rsi-chart"></div>
+      <div class="detail-bottom"><div><span class="eyebrow">VIIMANE SIGNAAL</span><p id="signal-description">—</p></div><div><span class="eyebrow">VIIMASE 30 KALENDRIPÄEVA RSI</span><p id="rsi-range">—</p></div></div>
+      <p class="chart-note">RSI-graafiku rohelised punktid: RSI alla 30. Kollased punktid: taastumine üle 30. Täpsed päevaväärtused on tabelis.</p>
+      <details><summary>Vaata graafiku päevaandmeid</summary><div class="history-scroll"><table><thead><tr><th>Kuupäev</th><th>Hind USD</th><th>RSI</th><th>Signaal</th></tr></thead><tbody id="history-list"></tbody></table></div></details>
+    </section>
+    <footer><span>◉ Stock Radar <span class="footer-separator">/</span> Teadlikum ülevaade, päev korraga.</span><p>RSI ei ennusta kuu põhja ega taga tootlust. Tehnilised signaalid ei ole personaalne investeerimissoovitus.</p><a href="https://github.com/karlreispass/stock-radar" target="_blank" rel="noopener noreferrer">Vaata GitHubis ↗</a></footer>
+  </main>
+</body>
+</html>
