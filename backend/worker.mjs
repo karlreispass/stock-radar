@@ -76,6 +76,15 @@ export async function handleRequest(request, env) {
   if (!ready(env)) return reply({ error: "Profiiliteenus vajab omaniku seadistust." }, 503);
   const url = new URL(request.url);
   if (url.pathname === "/health" && request.method === "GET") return reply({ ready: true });
+  if (url.pathname === "/v1/chart" && request.method === "GET") {
+    const symbol = (url.searchParams.get("symbol") ?? "").trim().toUpperCase();
+    if (!/^[A-Z0-9._-]{1,12}$/.test(symbol)) return reply({ error: "Vigane aktsia sümbol." }, 400);
+    const upstream = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(symbol) + "?interval=1d&range=2y&includeAdjustedClose=true", {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+    if (!upstream.ok) return reply({ error: "Yahoo Finance ei vastanud." }, 502);
+    return new Response(await upstream.text(), { status: 200, headers });
+  }
   const authorization = request.headers.get("Authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   try {

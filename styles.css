@@ -101,5 +101,6 @@ select:focus-visible{outline:2px solid var(--green);outline-offset:3px}
 .custom-form-actions{display:flex;gap:8px}
 .custom-feedback{margin:0 24px 16px}
 .small-button{padding:7px 12px;font-size:11px;border-radius:6px}
+.heading-actions,.detail-controls-group{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 @media(max-width:750px){.custom-stock-form{grid-template-columns:1fr;padding:0 18px 16px}.custom-form-actions button{width:100%}.custom-feedback{margin:0 18px 14px}
 }

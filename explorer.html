@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101817">
-  <meta name="description" content="Vali ja vaheta vabalt aktsiaid ning jälgi TradingView hinnagraafikut ja RSI-d.">
-  <title>Stock Radar · Vaba valik</title>
+  <meta name="description" content="Vali ja vaheta vabalt aktsiaid ning jälgi reaalajas hinnagraafikut ja RSI-d ilma 15-minutilise viiteta.">
+  <title>Stock Radar · Vaba valik (Reaalajas RSI)</title>
   <script>
     // Apply the saved choice before painting to avoid a flash of the other theme.
     try {
@@ -18,13 +18,14 @@
     }
   </script>
   <link rel="stylesheet" href="styles.css">
+  <script src="analysis.js" defer></script>
   <script src="explorer.js" defer></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="./"><span class="brand-icon" aria-hidden="true">◉</span> stock<span>radar</span></a>
     <span class="header-label">Sinu turuvaade</span>
-    <span class="market-label"><span class="dot"></span> Vabalt valitavad aktsiad</span>
+    <span class="market-label"><span class="dot"></span> Reaalajas hinna ja RSI vaade</span>
     <button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Hele teema" aria-pressed="false">Hele teema</button>
   </header>
   <main>
@@ -35,35 +36,47 @@
     </nav>
     <div class="page-heading">
       <div>
-        <p class="eyebrow">SINU ENDA AKTSIAD. SAMA ÜLEVAADE.</p>
-        <h1>Vali ja vaheta aktsiaid vabalt<span>.</span></h1>
-        <p class="intro">Lisa mis tahes börsisümbol oma nimekirja või otsi otse TradingView’ graafikult.</p>
+        <p class="eyebrow">SINU ENDA AKTSIAD · ILMA 15 MIN VIITETA</p>
+        <h1>Vali aktsiad ja jälgi RSI-d reaalajas<span>.</span></h1>
+        <p class="intro">Lisa mis tahes USA börsi sümbol. Hinnagraafik ja Wilderi RSI (14) arvutatakse otse viimase tehinguhinna pealt.</p>
       </div>
-      <button id="reset-watchlist" class="secondary" type="button">↺ Taasta vaikenimekiri</button>
+      <div class="heading-actions">
+        <button id="refresh-live" class="secondary" type="button">↻ Uuenda reaalajas hindu</button>
+        <button id="reset-watchlist" class="secondary" type="button">↺ Taasta vaikenimekiri</button>
+      </div>
     </div>
+
+    <div id="live-notice" class="notice live" role="status">Laadin valitud aktsiate reaalajas andmeid…</div>
+
+    <section class="metrics" aria-label="Valitud aktsiate ülevaade">
+      <article><span>Jälgitavad aktsiad</span><strong id="custom-stock-count">—</strong><small>Sinu vabalt valitud nimekiri</small></article>
+      <article><span>RSI alla 40</span><strong id="custom-low-count">—</strong><small>Varajases jälgimisalas, sh RSI alla 30</small></article>
+      <article><span>Võimalikud ostukandidaadid</span><strong id="custom-recovery-count">—</strong><small>Kolm tehnilist tingimust täidetud</small></article>
+      <article><span>Reaalajas seis</span><strong id="custom-data-date" class="date-value">—</strong><small id="custom-updated-at">Viimane tehinguhind</small></article>
+    </section>
 
     <div class="workspace">
       <section class="panel watchlist">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">KOHANDATAV NIMEKIRI</p>
+            <p class="eyebrow">KOHANDATAV JÄLGIMISNIMEKIRI</p>
             <h2>Sinu valitud aktsiad</h2>
           </div>
-          <span id="custom-count" class="pill">0 aktsiat</span>
+          <span class="pill">Reaalajas RSI 14</span>
         </div>
-        <p class="section-caption">Sisesta USA või muu börsi sümbol (nt <code>AAPL</code>, <code>NVDA</code>, <code>MSFT</code> või <code>NASDAQ:TSLA</code>). Valikud salvestuvad sellesse brauserisse.</p>
+        <p class="section-caption">Sisesta USA aktsia sümbol (nt <code>AAPL</code>, <code>NVDA</code>, <code>MSFT</code>, <code>TSLA</code>, <code>AMD</code>). Valikud salvestuvad sellesse brauserisse.</p>
 
         <form id="custom-stock-form" class="custom-stock-form" autocomplete="off">
           <label>
             <span>Sümbol (ticker)</span>
-            <input id="custom-symbol" type="text" maxlength="24" placeholder="nt AAPL või NASDAQ:AAPL" required>
+            <input id="custom-symbol" type="text" maxlength="24" placeholder="nt AAPL, NVDA, TSLA" required>
           </label>
           <label>
             <span>Nimi / märkus (valikuline)</span>
             <input id="custom-name" type="text" maxlength="40" placeholder="nt Apple">
           </label>
           <div class="custom-form-actions">
-            <button class="primary" type="submit">+ Lisa ja vaata</button>
+            <button id="custom-add-btn" class="primary" type="submit">+ Lisa ja vaata</button>
           </div>
         </form>
         <p id="custom-feedback" class="section-caption custom-feedback" role="status" hidden></p>
@@ -72,15 +85,19 @@
           <table>
             <thead>
               <tr>
-                <th>Aktsia</th>
-                <th>Sümbol</th>
+                <th>Ettevõte</th>
+                <th>Hind / päevamuutus</th>
+                <th>RSI</th>
+                <th>Hinna suund</th>
+                <th>RSI suund</th>
+                <th>Hinnang</th>
                 <th>Toiming</th>
               </tr>
             </thead>
             <tbody id="custom-stock-list"></tbody>
           </table>
         </div>
-        <div class="table-footer"><span class="dot"></span> Klõpsa aktsial graafiku vahetamiseks · sümbolit saad otsida ka otse graafiku ülaribalt</div>
+        <div class="table-footer"><span class="dot"></span> Reaalajas viimane hind ja jooksva küünla RSI (14) · klõpsa aktsial graafiku vahetamiseks</div>
       </section>
 
       <aside class="panel insight">
@@ -95,25 +112,78 @@
       </aside>
     </div>
 
-    <section id="detail" class="panel detail" aria-label="Valitud aktsia graafik">
+    <section id="detail" class="panel detail" aria-label="Valitud aktsia detailid">
       <div class="detail-heading">
         <div>
-          <p class="eyebrow">LÄHEM VAADE</p>
-          <h2 id="explorer-title">—</h2>
-          <p id="explorer-subtitle" class="section-caption">TradingView’ hinnagraafik ja RSI (14). Graafiku ülaribal saad otsida ka mis tahes muud sümbolit.</p>
+          <p class="eyebrow">LÄHEM VAADE · REAALAJAS</p>
+          <h2 id="explorer-title">Vali aktsia</h2>
+          <p id="explorer-subtitle" class="section-caption"></p>
         </div>
-        <div id="interval-controls" class="range-controls" role="group" aria-label="Küünalde ajavahemik">
-          <button data-interval="60" type="button" aria-pressed="false">1 tund</button>
-          <button data-interval="D" type="button" aria-pressed="true" class="active">1 päev</button>
-          <button data-interval="W" type="button" aria-pressed="false">1 nädal</button>
+        <div class="detail-controls-group">
+          <div id="chart-mode-controls" class="range-controls" role="group" aria-label="Graafiku tüüp">
+            <button data-mode="native" type="button" aria-pressed="true" class="active">Oma RSI graafik (reaalajas)</button>
+            <button data-mode="tradingview" type="button" aria-pressed="false">TradingView</button>
+          </div>
+          <div id="ranges" class="range-controls" role="group" aria-label="Graafiku ajavahemik">
+            <button data-days="30" type="button" aria-pressed="false">1 kuu</button>
+            <button data-days="90" type="button" aria-pressed="true" class="active">3 kuud</button>
+            <button data-days="365" type="button" aria-pressed="false">1 aasta</button>
+          </div>
         </div>
       </div>
-      <div class="widget-toolbar">
-        <span>Hinnagraafik + TradingView’ RSI (14) · sümboli otsing on graafikul avatud</span>
-        <button id="refresh-explorer-chart" class="secondary" type="button">Laadi graafik uuesti</button>
+
+      <div id="native-chart-section">
+        <div class="chart-label">
+          <span>Reaalajas hind ja sulgemishinnad · USD <span class="chart-key">Katkendjoon: 20 p · sinine: 50 p · lilla: 200 p</span></span>
+          <strong id="detail-price">—</strong>
+        </div>
+        <div id="price-chart" class="chart"></div>
+        <div class="chart-label rsi-label">
+          <span>RSI (14) reaalajas <span class="chart-key">─ 30 / 40 / 70 piirid</span></span>
+          <strong id="detail-rsi">—</strong>
+        </div>
+        <div id="rsi-chart" class="chart rsi-chart"></div>
       </div>
-      <div id="explorer-chart" class="tradingview-chart"></div>
-      <p id="explorer-status" class="chart-note" role="status">Graafik vajab internetiühendust. Kui see ei ilmu, ava allolev TradingView’ link.</p>
+
+      <div id="tv-chart-section" hidden>
+        <div class="widget-toolbar">
+          <span>TradingView’ hinnagraafik + RSI (14)</span>
+          <button id="refresh-explorer-chart" class="secondary" type="button">Laadi graafik uuesti</button>
+        </div>
+        <div id="explorer-chart" class="tradingview-chart"></div>
+        <p id="explorer-status" class="chart-note" role="status">TradingView’ manustatud vidinas võivad USA aktsiad olla 15-minutilise viitega või Cboe BZX voost. Ilma viiteta graafiku jaoks vali ülal „Oma RSI graafik (reaalajas)“.</p>
+      </div>
+
+      <div class="trend-summary">
+        <div><span>Hinna suund · 5 kauplemispäeva</span><strong id="price-trend">—</strong></div>
+        <div><span>RSI suund · 5 kauplemispäeva</span><strong id="rsi-trend">—</strong></div>
+        <div><span>Hind / 20 päeva keskmine</span><strong id="average-position">—</strong></div>
+        <div><span>Hind / 50 päeva keskmine</span><strong id="average-50">—</strong></div>
+        <div><span>Hind / 200 päeva keskmine</span><strong id="average-200">—</strong></div>
+      </div>
+      <div class="detail-bottom">
+        <div>
+          <span class="eyebrow">TEHNILINE HINNANG</span>
+          <h3 id="assessment-title">—</h3>
+          <p id="signal-description">—</p>
+        </div>
+        <div>
+          <span class="eyebrow">VIIMASE 30 KALENDRIPÄEVA RSI</span>
+          <p id="rsi-range">—</p>
+        </div>
+      </div>
+      <p class="chart-note">RSI-graafiku rohelised punktid: RSI alla 30. Kollased punktid: RSI 30 kuni alla 40. Viimane punkt sisaldab käimasoleva kauplemispäeva reaalajas hinda.</p>
+      <details>
+        <summary>Vaata graafiku päevaandmeid</summary>
+        <div class="history-scroll">
+          <table>
+            <thead>
+              <tr><th>Kuupäev</th><th>Hind USD</th><th>RSI</th><th>Signaal</th></tr>
+            </thead>
+            <tbody id="history-list"></tbody>
+          </table>
+        </div>
+      </details>
     </section>
 
     <footer>
