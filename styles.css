@@ -95,3 +95,11 @@ select:focus-visible{outline:2px solid var(--green);outline-offset:3px}
   .quick-target-form{align-items:stretch}.quick-target-form label{flex-basis:100%}.quick-target-form button{flex:1}
   .settings-actions{bottom:-20px}.settings-actions button{flex:1;white-space:normal}
 }
+.custom-stock-form{display:grid;grid-template-columns:1.2fr 1.2fr auto;gap:12px;align-items:end;padding:0 24px 16px}
+.custom-stock-form label{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--muted)}
+.custom-stock-form input{width:100%;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+.custom-form-actions{display:flex;gap:8px}
+.custom-feedback{margin:0 24px 16px}
+.small-button{padding:7px 12px;font-size:11px;border-radius:6px}
+@media(max-width:750px){.custom-stock-form{grid-template-columns:1fr;padding:0 18px 16px}.custom-form-actions button{width:100%}.custom-feedback{margin:0 18px 14px}
+}

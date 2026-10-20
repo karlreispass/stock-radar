@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="et">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101817">
+  <meta name="description" content="Vali ja vaheta vabalt aktsiaid ning jälgi TradingView hinnagraafikut ja RSI-d.">
+  <title>Stock Radar · Vaba valik</title>
+  <script>
+    // Apply the saved choice before painting to avoid a flash of the other theme.
+    try {
+      if (localStorage.getItem("stock-radar-theme") === "light") {
+        document.documentElement.dataset.theme = "light";
+        document.querySelector('meta[name="theme-color"]').content = "#f7f9f5";
+      }
+    } catch {
+      // The theme still works when browser storage is unavailable.
+    }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+  <script src="explorer.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./"><span class="brand-icon" aria-hidden="true">◉</span> stock<span>radar</span></a>
+    <span class="header-label">Sinu turuvaade</span>
+    <span class="market-label"><span class="dot"></span> Vabalt valitavad aktsiad</span>
+    <button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Hele teema" aria-pressed="false">Hele teema</button>
+  </header>
+  <main>
+    <nav class="view-tabs" aria-label="Vaate valik">
+      <a href="./">Päevavaade</a>
+      <a href="tradingview.html">TradingView</a>
+      <a href="explorer.html" aria-current="page">Vaba valik</a>
+    </nav>
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">SINU ENDA AKTSIAD. SAMA ÜLEVAADE.</p>
+        <h1>Vali ja vaheta aktsiaid vabalt<span>.</span></h1>
+        <p class="intro">Lisa mis tahes börsisümbol oma nimekirja või otsi otse TradingView’ graafikult.</p>
+      </div>
+      <button id="reset-watchlist" class="secondary" type="button">↺ Taasta vaikenimekiri</button>
+    </div>
+
+    <div class="workspace">
+      <section class="panel watchlist">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">KOHANDATAV NIMEKIRI</p>
+            <h2>Sinu valitud aktsiad</h2>
+          </div>
+          <span id="custom-count" class="pill">0 aktsiat</span>
+        </div>
+        <p class="section-caption">Sisesta USA või muu börsi sümbol (nt <code>AAPL</code>, <code>NVDA</code>, <code>MSFT</code> või <code>NASDAQ:TSLA</code>). Valikud salvestuvad sellesse brauserisse.</p>
+
+        <form id="custom-stock-form" class="custom-stock-form" autocomplete="off">
+          <label>
+            <span>Sümbol (ticker)</span>
+            <input id="custom-symbol" type="text" maxlength="24" placeholder="nt AAPL või NASDAQ:AAPL" required>
+          </label>
+          <label>
+            <span>Nimi / märkus (valikuline)</span>
+            <input id="custom-name" type="text" maxlength="40" placeholder="nt Apple">
+          </label>
+          <div class="custom-form-actions">
+            <button class="primary" type="submit">+ Lisa ja vaata</button>
+          </div>
+        </form>
+        <p id="custom-feedback" class="section-caption custom-feedback" role="status" hidden></p>
+
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Aktsia</th>
+                <th>Sümbol</th>
+                <th>Toiming</th>
+              </tr>
+            </thead>
+            <tbody id="custom-stock-list"></tbody>
+          </table>
+        </div>
+        <div class="table-footer"><span class="dot"></span> Klõpsa aktsial graafiku vahetamiseks · sümbolit saad otsida ka otse graafiku ülaribalt</div>
+      </section>
+
+      <aside class="panel insight">
+        <p class="eyebrow">KUIDAS SEDA LUGEDA?</p>
+        <h2>RSI annab vihje.<br>Otsus jääb sulle.</h2>
+        <div class="rsi-scale"><span>Madal</span><span>Neutraalne</span><span>Kõrge</span></div>
+        <div class="scale-bar"></div>
+        <div class="scale-ticks"><span>0</span><span>30</span><span>40</span><span>70</span><span>100</span></div>
+        <div class="legend-row"><i class="legend-dot green"></i><div><strong>Alla 30 · ülemüüdud</strong><p>Müügisurve on olnud tugev. Hind võib veel langeda.</p></div></div>
+        <div class="legend-row"><i class="legend-dot amber"></i><div><strong>Alla 40 · jälgimisala</strong><p>Varasem tähelepanukoht. Otsi hinna ja RSI taastumise märke.</p></div></div>
+        <div class="legend-row"><i class="legend-dot muted"></i><div><strong>Üle 70 · üleostetud</strong><p>Ostuhoog on olnud tugev. See ei määra müügihetke.</p></div></div>
+      </aside>
+    </div>
+
+    <section id="detail" class="panel detail" aria-label="Valitud aktsia graafik">
+      <div class="detail-heading">
+        <div>
+          <p class="eyebrow">LÄHEM VAADE</p>
+          <h2 id="explorer-title">—</h2>
+          <p id="explorer-subtitle" class="section-caption">TradingView’ hinnagraafik ja RSI (14). Graafiku ülaribal saad otsida ka mis tahes muud sümbolit.</p>
+        </div>
+        <div id="interval-controls" class="range-controls" role="group" aria-label="Küünalde ajavahemik">
+          <button data-interval="60" type="button" aria-pressed="false">1 tund</button>
+          <button data-interval="D" type="button" aria-pressed="true" class="active">1 päev</button>
+          <button data-interval="W" type="button" aria-pressed="false">1 nädal</button>
+        </div>
+      </div>
+      <div class="widget-toolbar">
+        <span>Hinnagraafik + TradingView’ RSI (14) · sümboli otsing on graafikul avatud</span>
+        <button id="refresh-explorer-chart" class="secondary" type="button">Laadi graafik uuesti</button>
+      </div>
+      <div id="explorer-chart" class="tradingview-chart"></div>
+      <p id="explorer-status" class="chart-note" role="status">Graafik vajab internetiühendust. Kui see ei ilmu, ava allolev TradingView’ link.</p>
+    </section>
+
+    <footer>
+      <span>◉ Stock Radar <span class="footer-separator">/</span> Teadlikum ülevaade, päev korraga.</span>
+      <p>RSI ei ennusta kuu põhja ega taga tootlust. Tehnilised signaalid ei ole personaalne investeerimissoovitus.</p>
+      <a href="https://github.com/karlreispass/stock-radar" target="_blank" rel="noopener noreferrer">Vaata GitHubis ↗</a>
+    </footer>
+  </main>
+</body>
+</html>

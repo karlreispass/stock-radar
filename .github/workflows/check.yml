@@ -29,5 +29,6 @@ jobs:
       - run: node --test tests/analysis.test.cjs
       - run: node --check app.js
       - run: node --check tradingview.js
+      - run: node --check explorer.js
       - name: Verify demo generation
         run: python scripts/update_data.py --demo --output "${{ runner.temp }}/stocks.json"

@@ -40,12 +40,13 @@ jobs:
       - run: node --test tests/analysis.test.cjs
       - run: node --check app.js
       - run: node --check tradingview.js
+      - run: node --check explorer.js
       - name: Download completed daily prices and calculate RSI
         run: python scripts/update_data.py
       - name: Prepare static website
         run: |
           mkdir -p site/data
-          cp index.html tradingview.html styles.css app.js tradingview.js analysis.js research.js profiles.js settings.json profile-config.json site/
+          cp index.html tradingview.html explorer.html styles.css app.js tradingview.js explorer.js analysis.js research.js profiles.js settings.json profile-config.json site/
           cp data/stocks.json site/data/
       - name: Set public profile service address
         run: python scripts/write_profile_config.py --output site/profile-config.json
