@@ -2,13 +2,13 @@
 
 const CUSTOM_STORAGE_KEY = "stock-radar-custom-stocks";
 const CUSTOM_SELECTED_KEY = "stock-radar-custom-selected";
+const CUSTOM_CACHE_KEY = "stock-radar-live-cache-v2";
+const CACHE_TTL_MS = 55 * 1000;
 
 const DEFAULT_CUSTOM_STOCKS = [
   { symbol: "AAPL", tvSymbol: "NASDAQ:AAPL", name: "Apple" },
   { symbol: "MSFT", tvSymbol: "NASDAQ:MSFT", name: "Microsoft" },
   { symbol: "NVDA", tvSymbol: "NASDAQ:NVDA", name: "NVIDIA" },
-  { symbol: "GOOGL", tvSymbol: "NASDAQ:GOOGL", name: "Alphabet" },
-  { symbol: "AMZN", tvSymbol: "NASDAQ:AMZN", name: "Amazon" },
   { symbol: "KO", tvSymbol: "NYSE:KO", name: "Coca-Cola" },
   { symbol: "PEP", tvSymbol: "NASDAQ:PEP", name: "PepsiCo" }
 ];
@@ -136,6 +136,29 @@ function saveStocks() {
   }
 }
 
+function readSessionCache(symbol) {
+  try {
+    const all = JSON.parse(sessionStorage.getItem(CUSTOM_CACHE_KEY) || "{}");
+    const entry = all[symbol];
+    if (entry && Date.now() - entry.savedAt < CACHE_TTL_MS && entry.data?.history?.length > 20) {
+      return entry.data;
+    }
+  } catch {
+    // Ignore cache errors.
+  }
+  return null;
+}
+
+function writeSessionCache(symbol, data) {
+  try {
+    const all = JSON.parse(sessionStorage.getItem(CUSTOM_CACHE_KEY) || "{}");
+    all[symbol] = { savedAt: Date.now(), data };
+    sessionStorage.setItem(CUSTOM_CACHE_KEY, JSON.stringify(all));
+  } catch {
+    // Ignore cache write errors.
+  }
+}
+
 function showFeedback(message, isError = false) {
   const notice = byId("custom-feedback");
   if (!message) {
@@ -148,10 +171,32 @@ function showFeedback(message, isError = false) {
   notice.textContent = message;
 }
 
-function parseYahooChartResponse(json, requestedSymbol, customName) {
+function buildStockObject(requestedSymbol, customName, sourceLabel, byDateMap) {
+  const rows = Array.from(byDateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+  if (rows.length < 21) {
+    throw new Error("Aktsial " + requestedSymbol + " on RSI jaoks liiga vähe kauplemispäevi.");
+  }
+  const rsiValues = calculateRsi(rows.map((r) => r.close), 14);
+  const history = rows.map((row, idx) => ({
+    ...row,
+    rsi: rsiValues[idx] !== null ? Number(rsiValues[idx].toFixed(4)) : null
+  }));
+
+  return {
+    symbol: requestedSymbol,
+    name: customName || requestedSymbol,
+    sector: sourceLabel,
+    liveTime: new Date().toISOString(),
+    isRealtime: true,
+    history
+  };
+}
+
+function parseYahooChartResponse(text, requestedSymbol, customName) {
+  const json = JSON.parse(text);
   const result = json?.chart?.result?.[0];
   if (!result || !Array.isArray(result.timestamp) || !result.indicators?.quote?.[0]) {
-    throw new Error("Aktsia " + requestedSymbol + " hinnaandmeid ei leitud.");
+    throw new Error("Yahoo Finance vastus puudub.");
   }
   const meta = result.meta || {};
   const timestamps = result.timestamp;
@@ -171,7 +216,6 @@ function parseYahooChartResponse(json, requestedSymbol, customName) {
     });
   }
 
-  // Ensure the real-time regularMarketPrice is reflected in the latest trading day.
   if (Number.isFinite(meta.regularMarketPrice) && meta.regularMarketPrice > 0 && Number.isFinite(meta.regularMarketTime)) {
     const liveDate = new Date(meta.regularMarketTime * 1000).toISOString().slice(0, 10);
     const livePrice = Number(meta.regularMarketPrice.toFixed(4));
@@ -182,72 +226,163 @@ function parseYahooChartResponse(json, requestedSymbol, customName) {
     });
   }
 
-  const rows = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-  if (rows.length < 21) {
-    throw new Error("Aktsial " + requestedSymbol + " on RSI jaoks liiga vähe kauplemispäevi.");
-  }
-  const rsiValues = calculateRsi(rows.map((r) => r.close), 14);
-  const history = rows.map((row, idx) => ({
-    ...row,
-    rsi: rsiValues[idx] !== null ? Number(rsiValues[idx].toFixed(4)) : null
-  }));
-
   const exchange = meta.exchangeName || meta.fullExchangeName || "USA börs";
   const resolvedName = customName || meta.shortName || meta.longName || requestedSymbol;
-  const marketTime = Number.isFinite(meta.regularMarketTime)
-    ? new Date(meta.regularMarketTime * 1000).toISOString()
-    : new Date().toISOString();
-
-  return {
-    symbol: requestedSymbol,
-    name: resolvedName,
-    sector: exchange + " · reaalajas",
-    liveTime: marketTime,
-    isRealtime: true,
-    history
-  };
+  return buildStockObject(requestedSymbol, resolvedName, exchange + " · reaalajas", byDate);
 }
 
-async function fetchYahooSymbol(symbol, customName) {
-  const yahooSymbol = symbol.replace(".", "-");
-  const targetUrl = "https://query1.finance.yahoo.com/v8/finance/chart/"
-    + encodeURIComponent(yahooSymbol)
-    + "?interval=1d&range=2y&includeAdjustedClose=true";
-
-  const endpoints = [];
-  if (explorerState.workerApiUrl) {
-    endpoints.push(explorerState.workerApiUrl + "/v1/chart?symbol=" + encodeURIComponent(yahooSymbol));
+function parseCnbcBarsResponse(text, requestedSymbol, customName) {
+  const json = JSON.parse(text);
+  const bars = json?.barData?.priceBars || json?.barData?.bars;
+  if (!Array.isArray(bars) || bars.length < 21) {
+    throw new Error("CNBC hinnaajalugu puudub.");
   }
-  endpoints.push(
-    "https://corsproxy.io/?" + encodeURIComponent(targetUrl),
-    "https://api.allorigins.win/raw?url=" + encodeURIComponent(targetUrl),
-    "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(targetUrl)
-  );
+  const byDate = new Map();
+  for (const bar of bars) {
+    const close = Number(bar.close);
+    if (!Number.isFinite(close) || close <= 0) continue;
+    let isoDate = "";
+    if (typeof bar.tradeTime === "string" && bar.tradeTime.length >= 8) {
+      isoDate = bar.tradeTime.slice(0, 4) + "-" + bar.tradeTime.slice(4, 6) + "-" + bar.tradeTime.slice(6, 8);
+    } else if (bar.tradeTimeinMills) {
+      isoDate = new Date(Number(bar.tradeTimeinMills)).toISOString().slice(0, 10);
+    } else if (typeof bar.time === "string") {
+      isoDate = bar.time.slice(0, 10);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) continue;
+    const rounded = Number(close.toFixed(4));
+    byDate.set(isoDate, { date: isoDate, close: rounded, quote_close: rounded });
+  }
+  return buildStockObject(requestedSymbol, customName || requestedSymbol, "USA börs · reaalajas", byDate);
+}
 
-  let lastError = null;
-  for (const url of endpoints) {
-    try {
-      const response = await fetch(url, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(9000)
-      });
-      if (!response.ok) continue;
-      const json = await response.json();
-      if (json?.chart?.result?.[0]) {
-        return parseYahooChartResponse(json, symbol, customName);
-      }
-    } catch (error) {
-      lastError = error;
+function parseStooqCsvResponse(text, requestedSymbol, customName) {
+  const lines = String(text || "").trim().split(/\r?\n/);
+  if (lines.length < 22 || !lines[0].startsWith("Date,")) {
+    throw new Error("Stooq CSV vastus puudub.");
+  }
+  const byDate = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(",");
+    if (parts.length < 5) continue;
+    const isoDate = parts[0].trim();
+    const close = Number(parts[4]);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate) || !Number.isFinite(close) || close <= 0) continue;
+    const rounded = Number(close.toFixed(4));
+    byDate.set(isoDate, { date: isoDate, close: rounded, quote_close: rounded });
+  }
+  return buildStockObject(requestedSymbol, customName || requestedSymbol, "USA börs · päeva- ja hetkehind", byDate);
+}
+
+function formatCnbcTimestamp(dateObj) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return dateObj.getUTCFullYear()
+    + pad(dateObj.getUTCMonth() + 1)
+    + pad(dateObj.getUTCDate())
+    + "235959";
+}
+
+async function fetchViaProvider(provider, symbol, customName) {
+  const response = await fetch(provider.url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  let rawText = await response.text();
+  if (provider.unwrapAllOrigins) {
+    const wrapper = JSON.parse(rawText);
+    rawText = wrapper.contents || "";
+  }
+  return provider.parse(rawText, symbol, customName);
+}
+
+async function fetchYahooSymbol(symbol, customName, useCache = true) {
+  if (useCache) {
+    const cached = readSessionCache(symbol);
+    if (cached) {
+      if (customName) cached.name = customName;
+      return cached;
     }
   }
 
-  if (explorerState.fallbackData.has(symbol)) {
-    const fallback = structuredClone(explorerState.fallbackData.get(symbol));
-    if (customName) fallback.name = customName;
-    fallback.isRealtime = false;
-    return fallback;
+  const now = new Date();
+  const twoYearsAgo = new Date(now.getTime() - 735 * 86400000);
+  const cnbcUrl = "https://ts-api.cnbc.com/harmony/app/bars/"
+    + encodeURIComponent(symbol)
+    + "/1D/" + formatCnbcTimestamp(twoYearsAgo)
+    + "/" + formatCnbcTimestamp(now)
+    + "/adjusted/EST5EDT.json";
+
+  const stooqSymbol = symbol.toLowerCase().replace(".", "-") + ".us";
+  const stooqUrl = "https://stooq.com/q/d/l/?s=" + encodeURIComponent(stooqSymbol) + "&i=d";
+
+  const yahooSymbol = symbol.replace(".", "-");
+  const yahooUrl = "https://query2.finance.yahoo.com/v8/finance/chart/"
+    + encodeURIComponent(yahooSymbol)
+    + "?interval=1d&range=2y&includeAdjustedClose=true";
+
+  const providers = [];
+  if (explorerState.workerApiUrl) {
+    providers.push({
+      url: explorerState.workerApiUrl + "/v1/chart?symbol=" + encodeURIComponent(yahooSymbol),
+      unwrapAllOrigins: false,
+      parse: parseYahooChartResponse
+    });
   }
-  throw lastError || new Error("Sümboli " + symbol + " reaalajas andmeid ei saanud laadida.");
+
+  providers.push(
+    // 1. CNBC real-time daily bars (includes live today bar, not rate-limited like Yahoo)
+    {
+      url: "https://api.allorigins.win/get?url=" + encodeURIComponent(cnbcUrl),
+      unwrapAllOrigins: true,
+      parse: parseCnbcBarsResponse
+    },
+    {
+      url: "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(cnbcUrl),
+      unwrapAllOrigins: false,
+      parse: parseCnbcBarsResponse
+    },
+    // 2. Stooq daily CSV
+    {
+      url: "https://api.allorigins.win/get?url=" + encodeURIComponent(stooqUrl),
+      unwrapAllOrigins: true,
+      parse: parseStooqCsvResponse
+    },
+    // 3. Yahoo Finance via AllOrigins & CodeTabs
+    {
+      url: "https://api.allorigins.win/get?url=" + encodeURIComponent(yahooUrl),
+      unwrapAllOrigins: true,
+      parse: parseYahooChartResponse
+    },
+    {
+      url: "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(yahooUrl),
+      unwrapAllOrigins: false,
+      parse: parseYahooChartResponse
+    }
+  );
+
+  try {
+    // Race the top 2 providers first for sub-second response without flooding proxies.
+    const firstWave = providers.slice(0, 2).map((p) => fetchViaProvider(p, symbol, customName));
+    const parsed = await Promise.any(firstWave);
+    writeSessionCache(symbol, parsed);
+    return parsed;
+  } catch {
+    try {
+      const secondWave = providers.slice(2).map((p) => fetchViaProvider(p, symbol, customName));
+      const parsed = await Promise.any(secondWave);
+      writeSessionCache(symbol, parsed);
+      return parsed;
+    } catch {
+      if (explorerState.fallbackData.has(symbol)) {
+        const fallback = structuredClone(explorerState.fallbackData.get(symbol));
+        if (customName) fallback.name = customName;
+        fallback.isRealtime = false;
+        return fallback;
+      }
+      throw new Error("Sümboli " + symbol + " reaalajas andmeid ei saanud praegu laadida. Kontrolli sümbolit või proovi uuesti.");
+    }
+  }
 }
 
 async function initConfigAndFallback() {
@@ -269,6 +404,11 @@ async function initConfigAndFallback() {
       if (Array.isArray(snap.stocks)) {
         for (const stock of snap.stocks) {
           explorerState.fallbackData.set(stock.symbol, stock);
+          if (!explorerState.marketData.has(stock.symbol)) {
+            const preloaded = structuredClone(stock);
+            preloaded.isRealtime = false;
+            explorerState.marketData.set(stock.symbol, preloaded);
+          }
         }
       }
     }
@@ -295,17 +435,17 @@ function renderOverview() {
 
   const dates = loadedStocks.map((stock) => stock.history.at(-1).date).sort();
   byId("custom-data-date").textContent = formatDate(dates.at(-1));
-  const anyFallback = loadedStocks.some((stock) => !stock.isRealtime);
+  const anyLive = loadedStocks.some((stock) => stock.isRealtime);
   const nowStr = new Date().toLocaleTimeString("et-EE");
-  byId("custom-updated-at").textContent = (anyFallback ? "Viimane salvestatud seis · " : "Reaalajas uuendatud ") + nowStr;
+  byId("custom-updated-at").textContent = (anyLive ? "Reaalajas uuendatud " : "Laadin reaalajas hindu · ") + nowStr;
 
   const notice = byId("live-notice");
-  if (anyFallback) {
-    notice.className = "notice";
-    notice.textContent = "OSA ANDMEID ON KOHALIKUST VARUKOOPIAST · Otseühendus Yahoo Finance'iga polnud hetkel kõigi sümbolite jaoks kättesaadav.";
-  } else {
+  if (anyLive) {
     notice.className = "notice live";
-    notice.textContent = "REAALAJAS ANDMED · Yahoo Finance otsepäring ilma 15-minutilise viiteta. Viimane küünal ja RSI (14) arvestavad jooksva kauplemispäeva viimast hinda.";
+    notice.textContent = "REAALAJAS ANDMED · Hinnad ja Wilderi RSI (14) arvutatakse otse jooksva kauplemispäeva viimase tehinguhinna pealt ilma 15-minutilise viiteta.";
+  } else {
+    notice.className = "notice";
+    notice.textContent = "Laadin valitud aktsiate reaalajas hindu…";
   }
 }
 
@@ -369,7 +509,7 @@ function renderCustomList() {
         signalCell
       );
     } else {
-      const statusText = stock?.error ? "Viga: " + stock.error : "Laadin reaalajas hinda…";
+      const statusText = stock?.error ? stock.error : "Laadin reaalajas hinda…";
       const statusCell = element("td", stock?.error ? "negative" : "", statusText);
       statusCell.colSpan = 5;
       row.append(nameCell, statusCell);
@@ -550,7 +690,7 @@ function renderDetail() {
 
   if (!stock || !stock.history || stock.history.length < 2) {
     byId("explorer-title").textContent = (item.name || item.symbol) + " · " + item.symbol;
-    byId("explorer-subtitle").textContent = stock?.error ? "Andmete laadimine ebaõnnestus: " + stock.error : "Laadin reaalajas hinnaajalugu ja arvutan RSI-d…";
+    byId("explorer-subtitle").textContent = stock?.error ? stock.error : "Laadin reaalajas hinnaajalugu ja arvutan RSI-d…";
     return;
   }
 
@@ -565,7 +705,7 @@ function renderDetail() {
     average200: movingAverage(stock.history, index, 200)
   })).filter((point) => Date.parse(point.date) >= cutoff.getTime());
 
-  byId("explorer-title").textContent = stock.name + " · " + stock.symbol;
+  byId("explorer-title").textContent = (item.name || stock.name) + " · " + stock.symbol;
   byId("explorer-subtitle").textContent = stock.sector + " · Viimane kuupäev " + formatDate(latest.date);
   byId("detail-price").textContent = "$" + number.format(latest.close);
   byId("detail-rsi").textContent = latest.rsi !== null ? decimal.format(latest.rsi) : "—";
@@ -614,37 +754,46 @@ function renderDetail() {
   }
 }
 
-async function refreshAllLiveStocks() {
+async function refreshAllLiveStocks(useCache = false) {
   if (explorerState.loading) return;
   explorerState.loading = true;
   const refreshBtn = byId("refresh-live");
   refreshBtn.disabled = true;
 
+  renderOverview();
   renderCustomList();
   renderDetail();
 
   try {
-    await Promise.all(explorerState.stocks.map(async (item) => {
+    const ordered = [
+      ...explorerState.stocks.filter((s) => s.symbol === explorerState.selected),
+      ...explorerState.stocks.filter((s) => s.symbol !== explorerState.selected)
+    ];
+
+    for (const item of ordered) {
       try {
-        const customName = item.name !== item.symbol ? item.name : "";
-        const data = await fetchYahooSymbol(item.symbol, customName);
+        const customName = item.name && item.name !== item.symbol ? item.name : "";
+        const data = await fetchYahooSymbol(item.symbol, customName, useCache);
         if (!item.name || item.name === item.symbol) {
           item.name = data.name;
         }
         explorerState.marketData.set(item.symbol, data);
       } catch (error) {
-        explorerState.marketData.set(item.symbol, {
-          symbol: item.symbol,
-          name: item.name,
-          error: error.message || "Laadimine ebaõnnestus"
-        });
+        if (!explorerState.marketData.get(item.symbol)?.history) {
+          explorerState.marketData.set(item.symbol, {
+            symbol: item.symbol,
+            name: item.name,
+            error: error.message || "Laadimine ebaõnnestus"
+          });
+        }
       }
       renderOverview();
       renderCustomList();
       if (item.symbol === explorerState.selected) {
         renderDetail();
       }
-    }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
     saveStocks();
   } finally {
     explorerState.loading = false;
@@ -663,7 +812,7 @@ async function handleAddStock(event) {
     const customName = nameInput.value.trim();
 
     showFeedback("Kontrollin sümbolit " + symbol + " ja laadin reaalajas andmeid…");
-    const data = await fetchYahooSymbol(symbol, customName);
+    const data = await fetchYahooSymbol(symbol, customName, false);
     explorerState.marketData.set(symbol, data);
 
     const existing = explorerState.stocks.find((item) => item.symbol === symbol);
@@ -679,7 +828,7 @@ async function handleAddStock(event) {
         name: customName || data.name || symbol
       });
       explorerState.selected = symbol;
-      showFeedback(symbol + " (" + data.name + ") lisati reaalajas nimekirja.");
+      showFeedback(symbol + " lisati reaalajas nimekirja.");
     }
 
     symbolInput.value = "";
@@ -700,7 +849,7 @@ function resetWatchlist() {
   explorerState.selected = explorerState.stocks[0].symbol;
   saveStocks();
   showFeedback("Vaikimisi aktsiate nimekiri taastati.");
-  refreshAllLiveStocks();
+  refreshAllLiveStocks(false);
 }
 
 function updateThemeButton() {
@@ -743,7 +892,7 @@ updateThemeButton();
 
 byId("custom-stock-form").addEventListener("submit", handleAddStock);
 byId("reset-watchlist").addEventListener("click", resetWatchlist);
-byId("refresh-live").addEventListener("click", refreshAllLiveStocks);
+byId("refresh-live").addEventListener("click", () => refreshAllLiveStocks(false));
 byId("refresh-explorer-chart").addEventListener("click", () => {
   const item = explorerState.stocks.find((s) => s.symbol === explorerState.selected) || explorerState.stocks[0];
   if (item) renderTradingViewWidget(item, true);
@@ -776,8 +925,8 @@ byId("chart-mode-controls").addEventListener("click", (event) => {
 // Auto-refresh live data every 60 seconds when tab is visible.
 setInterval(() => {
   if (document.visibilityState === "visible") {
-    refreshAllLiveStocks();
+    refreshAllLiveStocks(false);
   }
 }, 60000);
 
-initConfigAndFallback().then(refreshAllLiveStocks);
+initConfigAndFallback().then(() => refreshAllLiveStocks(true));
