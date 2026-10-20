@@ -7,7 +7,7 @@ function environment() {
   const records = new Map();
   return {
     records, ALLOWED_ORIGIN: origin,
-    PROFILE_1_CODE: "test-user-one-code", PROFILE_2_CODE: "test-user-two-code", PROFILE_3_CODE: "test-user-three-code",
+    PROFILE_1_CODE: "1111", PROFILE_2_CODE: "2222", PROFILE_3_CODE: "3333",
     AUTOMATION_TOKEN: "test-automation-credential-at-least-32-characters",
     AUTH_LIMITER: { async limit() { return { success: true }; } },
     PROFILES: {

@@ -115,7 +115,7 @@ async function loadPage(filename, options = {}) {
       if (name === "profile-config.json" && options.profileApi) return { ok: true, json: async () => ({ api_url: "https://profiles.example" }) };
       if (name.startsWith("https://profiles.example/")) {
         const id = name.split("/").at(-1);
-        if (optionsForRequest.headers.Authorization !== "Bearer test-" + id + "-code") return { ok: false, json: async () => ({ error: "Vale kood." }) };
+        if (optionsForRequest.headers.Authorization !== "Bearer " + id.at(-1).repeat(4)) return { ok: false, json: async () => ({ error: "Vale kood." }) };
         if (optionsForRequest.method === "PUT") {
           if (options.profileSaveFailure) return { ok: false, json: async () => ({ error: "Teenuse tõrge." }) };
           remoteProfiles.set(id, { id, name: "Kasutaja " + id.at(-1), enabled: true, updated_at: "2026-10-20T22:30:00Z", settings: JSON.parse(optionsForRequest.body) });
@@ -185,7 +185,7 @@ test("server profiles save without exporting a file and keep users separate", as
   const page = await loadPage("index.html", { profileApi: true });
   assert.equal(page.nodes.get("settings-save").disabled, true);
   assert.equal(page.nodes.get("settings-export").hidden, true);
-  page.nodes.get("profile-code").value = "test-user-1-code";
+  page.nodes.get("profile-code").value = "1111";
   await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
   assert.equal(page.nodes.get("settings-save").disabled, false);
   page.nodes.get("target-KO").value = "60";
@@ -197,7 +197,7 @@ test("server profiles save without exporting a file and keep users separate", as
   page.nodes.get("profile-select").handlers.change();
   assert.equal(page.nodes.get("target-KO").value, "");
   assert.equal(page.nodes.get("settings-save").disabled, true);
-  page.nodes.get("profile-code").value = "test-user-2-code";
+  page.nodes.get("profile-code").value = "2222";
   await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
   assert.equal(page.nodes.get("target-KO").value, "");
   assert.equal(page.remoteProfiles.get("user-1").settings.targets.KO, 60);
@@ -206,7 +206,7 @@ test("server profiles save without exporting a file and keep users separate", as
 
 test("failed server saves do not claim success or persist new local targets", async () => {
   const page = await loadPage("tradingview.html", { profileApi: true, profileSaveFailure: true });
-  page.nodes.get("profile-code").value = "test-user-1-code";
+  page.nodes.get("profile-code").value = "1111";
   await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
   page.nodes.get("target-KO").value = "61";
   await page.nodes.get("research-form").handlers.submit({ preventDefault() {} });

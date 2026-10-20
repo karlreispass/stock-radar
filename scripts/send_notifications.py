@@ -232,7 +232,7 @@ def load_remote_profiles():
     if not api_url or len(api_token) < 32:
         raise ValueError("Profiiliteenus vajab PROFILE_API_URL muutujat ja vähemalt 32 märgiga PROFILE_API_TOKEN saladust.")
     api_url = validate_api_url(api_url)
-    request = Request(api_url + "/v1/profiles", headers={"Authorization": "Bearer " + api_token, "Accept": "application/json"})
+    request = Request(api_url + "/v1/profiles", headers={"Authorization": "Bearer " + api_token, "Accept": "application/json", "User-Agent": "stock-radar"})
     try:
         with urlopen(request, timeout=30) as response:
             raw = response.read(65537)

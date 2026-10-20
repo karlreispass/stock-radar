@@ -26,8 +26,8 @@ npx.cmd --yes wrangler@4 kv namespace create PROFILES --config backend/wrangler.
 npx.cmd --yes wrangler@4 deploy --config backend/wrangler.jsonc
 ```
 
-5. Loo paroolihalduriga kolm erinevat vähemalt 12 märgiga profiilikoodi
-   (soovitatavalt 16–32 juhuslikku ASCII tähte/numbrit) ning neist erinev vähemalt
+5. Vali kolm erinevat vähemalt 4 märgiga profiilikoodi
+   (lihtsat koodi teadev inimene saab vastava profiili seadeid muuta) ning neist erinev vähemalt
    32 märgiga automaatikavõti. Järgmised käsud küsivad väärtusi interaktiivselt:
 
 ```powershell

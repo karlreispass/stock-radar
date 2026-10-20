@@ -53,7 +53,7 @@ async function readProfile(env, id) {
 function ready(env) {
   const codes = PROFILE_IDS.map((id) => env["PROFILE_" + id.at(-1) + "_CODE"]);
   return env.PROFILES && env.AUTH_LIMITER && /^https:\/\/[^/]+$/.test(env.ALLOWED_ORIGIN ?? "")
-    && codes.every((code) => typeof code === "string" && code.length >= 12)
+    && codes.every((code) => typeof code === "string" && code.length >= 4)
     && new Set(codes).size === 3
     && typeof env.AUTOMATION_TOKEN === "string" && env.AUTOMATION_TOKEN.length >= 32
     && !codes.includes(env.AUTOMATION_TOKEN);

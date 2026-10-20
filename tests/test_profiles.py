@@ -37,6 +37,7 @@ class ProfileTests(unittest.TestCase):
         result = load_remote_profiles()
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://profiles.example/v1/profiles")
+        self.assertEqual(request.get_header("User-agent"), "stock-radar")
         self.assertEqual(request.get_header("Authorization"), "Bearer " + "x" * 32)
         self.assertEqual(len(result), 3)
 

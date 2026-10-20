@@ -48,7 +48,7 @@ async function unlockProfile(event) {
   event.preventDefault();
   if (!profileApiUrl) return;
   const code = byId("profile-code").value.trim();
-  if (code.length < 12) { byId("profile-status").textContent = "Sisesta vähemalt 12 märgiga profiili kood."; return; }
+  if (code.length < 4) { byId("profile-status").textContent = "Sisesta vähemalt 4 märgiga profiili kood."; return; }
   const id = byId("profile-select").value;
   const version = ++profileRequestVersion;
   profileAccessCode = "";
