@@ -284,5 +284,8 @@ byId("ranges")?.addEventListener("click", (event) => {
 });
 byId("research-form").addEventListener("submit", saveResearchSettings);
 byId("settings-export").addEventListener("click", exportResearchSettings);
-loadResearchSettings();
+byId("profile-form").addEventListener("submit", unlockProfile);
+byId("profile-select").addEventListener("change", resetProfile);
+byId("profile-lock").addEventListener("click", resetProfile);
+loadResearchSettings().then(loadProfileService);
 loadData();

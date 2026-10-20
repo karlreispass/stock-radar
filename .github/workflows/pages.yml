@@ -35,6 +35,8 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: node --check analysis.js
       - run: node --check research.js
+      - run: node --check profiles.js
+      - run: node --test tests/profiles.test.cjs
       - run: node --test tests/analysis.test.cjs
       - run: node --check app.js
       - run: node --check tradingview.js
@@ -43,8 +45,13 @@ jobs:
       - name: Prepare static website
         run: |
           mkdir -p site/data
-          cp index.html tradingview.html styles.css app.js tradingview.js analysis.js research.js settings.json site/
+          cp index.html tradingview.html styles.css app.js tradingview.js analysis.js research.js profiles.js settings.json profile-config.json site/
           cp data/stocks.json site/data/
+      - name: Set public profile service address
+        run: python scripts/write_profile_config.py --output site/profile-config.json
+        env:
+          PROFILE_API_URL: ${{ vars.PROFILE_API_URL }}
+
       - name: Save market data for RSI notifications
         uses: actions/upload-artifact@v4
         with:
@@ -94,11 +101,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           SITE_URL: ${{ needs.deploy.outputs.page_url }}
+          PROFILE_API_URL: ${{ vars.PROFILE_API_URL }}
+          PROFILE_API_TOKEN: ${{ secrets.PROFILE_API_TOKEN }}
 
 
   health:
-    needs: [build, deploy]
-    if: ${{ always() && !cancelled() && (needs.build.result == 'failure' || needs.deploy.result == 'failure') }}
+    needs: [build, deploy, notify]
+    if: ${{ always() && !cancelled() && (needs.build.result == 'failure' || needs.deploy.result == 'failure' || needs.notify.result == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -5,3 +5,8 @@ __pycache__/
 data/*.tmp
 site/
 .notification-state/
+
+backend/.wrangler/
+backend/.dev.vars*
+backend/node_modules/
+/.wrangler/

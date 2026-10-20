@@ -74,6 +74,7 @@ function readSettingsForm() {
 
 function saveResearchSettings(event) {
   event.preventDefault();
+  if (typeof profileApiUrl !== "undefined" && profileApiUrl) return saveServerProfile(event);
   try {
     researchSettings = readSettingsForm();
     let message = "Valikud rakendatud selles vaates.";

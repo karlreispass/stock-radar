@@ -13,8 +13,10 @@ from urllib.request import Request, urlopen
 
 if __package__:
     from .signals import is_candidate, validate_settings
+    from .write_profile_config import validate_api_url
 else:
     from signals import is_candidate, validate_settings
+    from write_profile_config import validate_api_url
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SITE_URL = "https://karlreispass.github.io/stock-radar/"
@@ -84,8 +86,9 @@ def day_marker(day):
 
 
 def event_marker(event):
-    target = f":{event['target']}" if event["kind"] == "target" else ""
-    return f"<!-- stock-radar:rsi-event:v1:{event['date']}:{event['symbol']}:{event['kind']}{target} -->"
+    target = f":{event['target']:g}" if event["kind"] == "target" else ""
+    profile = ":" + event["profile_id"] if event.get("profile_id") else ""
+    return f"<!-- stock-radar:rsi-event:v1:{event['date']}:{event['symbol']}:{event['kind']}{target}{profile} -->"
 
 
 def create_issue_body(events, site_url):
@@ -98,15 +101,15 @@ def create_issue_body(events, site_url):
     }
     lines = [
         day_marker(events[0]["date"]), "## Uued aktsiasignaalid", "",
-        "| Ettevõte | Signaal | RSI (14) | Korrigeeritud hind |",
-        "| --- | --- | --- | --- |",
+        "| Profiil | Ettevõte | Signaal | RSI (14) | Korrigeeritud hind |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for event in events:
         label = labels[event["kind"]]
         if event["kind"] == "target":
             label += f" · siht {event['target']:.2f}, korrigeerimata sulgemishind {event['quote_close']:.2f} USD"
         lines.append(
-            f"| {event['name']} ({event['symbol']}) | {label} | "
+            f"| {event.get('profile_name', 'Ühine')} | {event['name']} ({event['symbol']}) | {label} | "
             f"{event['previous_rsi']:.2f} → {event['rsi']:.2f} | {event['close']:.2f} USD |"
         )
     lines.extend([
@@ -220,6 +223,55 @@ def stale_snapshot(data, today=None):
     return message, fingerprint
 
 
+def load_remote_profiles():
+    """No configuration means legacy mode; partial/broken configuration is an error."""
+    api_url = os.environ.get("PROFILE_API_URL", "").strip()
+    api_token = os.environ.get("PROFILE_API_TOKEN", "").strip()
+    if not api_url and not api_token:
+        return None
+    if not api_url or len(api_token) < 32:
+        raise ValueError("Profiiliteenus vajab PROFILE_API_URL muutujat ja vähemalt 32 märgiga PROFILE_API_TOKEN saladust.")
+    api_url = validate_api_url(api_url)
+    request = Request(api_url + "/v1/profiles", headers={"Authorization": "Bearer " + api_token, "Accept": "application/json"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read(65537)
+        if len(raw) > 65536:
+            raise ValueError("Profiiliteenuse vastus on liiga suur.")
+        payload = json.loads(raw)
+    except HTTPError as error:
+        error.close()
+        raise ValueError(f"Profiiliteenus tagastas HTTP {error.code}. Kontrolli teenuse seadistust.") from None
+    except (OSError, json.JSONDecodeError):
+        raise ValueError("Profiiliteenuse lugemine ebaõnnestus. Vanade valikutega teavitusi ei saadeta.") from None
+    profiles = payload.get("profiles") if isinstance(payload, dict) else None
+    if not isinstance(profiles, list) or len(profiles) != 3:
+        raise ValueError("Profiiliteenuse vastuses peab olema kolm profiili.")
+    seen = set()
+    for profile in profiles:
+        if not isinstance(profile, dict) or profile.get("id") not in {"user-1", "user-2", "user-3"} or profile["id"] in seen or type(profile.get("enabled")) is not bool:
+            raise ValueError("Profiiliteenuse profiilid ei sobi.")
+        seen.add(profile["id"])
+        validate_settings(profile["settings"])
+        profile["name"] = "Kasutaja " + profile["id"][-1]
+    return profiles
+
+
+def configured_signals(data, settings):
+    profiles = load_remote_profiles()
+    if profiles is None:
+        return find_signals(data, settings=settings), settings["health_alerts"]
+    events = []
+    health_alerts = False
+    for profile in profiles:
+        if not profile["enabled"]:
+            continue
+        health_alerts = health_alerts or profile["settings"]["health_alerts"]
+        for event in find_signals(data, settings=profile["settings"]):
+            events.append({**event, "profile_id": profile["id"], "profile_name": profile["name"]})
+    return events, health_alerts
+
+
 def run(data_path, dry_run=False, settings_path=None, failure=False):
     settings_path = settings_path or ROOT / "settings.json"
     settings = validate_settings(json.loads(settings_path.read_text(encoding="utf-8")))
@@ -238,8 +290,8 @@ def run(data_path, dry_run=False, settings_path=None, failure=False):
     if data.get("mode") == "demo":
         print("Näidisandmetest GitHubi teavitusi ei looda.")
         return
-    events = find_signals(data, settings=settings)
-    health = stale_snapshot(data) if settings["health_alerts"] else None
+    events, health_enabled = configured_signals(data, settings)
+    health = stale_snapshot(data) if health_enabled else None
     if not events and not health:
         print("Uusi signaale ei ole; GitHubi teavitusi ei loodud.")
         return

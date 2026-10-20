@@ -214,3 +214,10 @@ node --test tests/analysis.test.cjs
 Teavituste eelvaade: `python scripts/send_notifications.py --dry-run`.
 Tõrketeate eelvaade: `python scripts/send_notifications.py --failure --dry-run`.
 Mõlemad on eelvaated; päris teavitused saadab pärast avaldamist Actions.
+
+## Kolm salvestatavat profiili
+
+Veebivaated toetavad profiile **Kasutaja 1**, **Kasutaja 2** ja **Kasutaja 3**.
+Taustateenus vajab omaniku ühekordset paigaldust: [juhend](backend/README.md).
+Pärast ühendamist saab kasutaja oma koodiga veebis sihthindu salvestada, ilma failide
+eksportimise või GitHubi kontota. Kõigi profiilide teavitused lähevad ühisesse Issue-voogu.

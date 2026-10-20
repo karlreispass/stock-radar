@@ -1,0 +1,25 @@
+{
+	"name": "stock-radar-profiles",
+	"main": "worker.mjs",
+	"compatibility_date": "2026-10-20",
+	"workers_dev": true,
+	"vars": {
+		"ALLOWED_ORIGIN": "https://karlreispass.github.io"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "PROFILES",
+			"id": "db996d5f60444ce2a63d0379441a62aa"
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "AUTH_LIMITER",
+			"namespace_id": "51701",
+			"simple": {
+				"limit": 15,
+				"period": 60
+			}
+		}
+	]
+}

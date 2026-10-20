@@ -77,6 +77,10 @@ const projectRoot = path.resolve(__dirname, "..");
 async function loadPage(filename, options = {}) {
   const html = fs.readFileSync(path.join(projectRoot, filename), "utf8");
   const nodes = new Map(), saved = new Map();
+  const baseSettings = JSON.parse(fs.readFileSync(path.join(projectRoot, "settings.json"), "utf8"));
+  const remoteProfiles = new Map(["user-1", "user-2", "user-3"].map((id) => [id, {
+    id, name: "Kasutaja " + id.at(-1), enabled: false, updated_at: null, settings: structuredClone(baseSettings)
+  }]));
   let exported = null;
   function node(tag) {
     let value = "";
@@ -98,24 +102,36 @@ async function loadPage(filename, options = {}) {
   const document = { documentElement: { dataset: {} }, getElementById(id) { return nodes.get(id) ?? null; },
     createElement: node, createElementNS(ns, tag) { return node(tag); }, querySelector() { return meta; } };
   const context = vm.createContext({
-    document, Intl, console, structuredClone, Blob,
+    document, Intl, console, structuredClone, Blob, AbortSignal,
     setTimeout(fn) { fn(); },
-    URL: { createObjectURL(blob) { exported = blob; return "blob:test"; }, revokeObjectURL() {} },
+    URL: class extends URL { static createObjectURL(blob) { exported = blob; return "blob:test"; } static revokeObjectURL() {} },
     localStorage: {
       getItem(key) { return saved.get(key) ?? null; },
       setItem(key, input) { if (options.storageBlocked) throw Error("blocked"); saved.set(key, input); }
     },
-    fetch: async (name) => {
+
+    fetch: async (name, optionsForRequest = {}) => {
       if (options.settingsFailure && name === "settings.json") return { ok: false };
+      if (name === "profile-config.json" && options.profileApi) return { ok: true, json: async () => ({ api_url: "https://profiles.example" }) };
+      if (name.startsWith("https://profiles.example/")) {
+        const id = name.split("/").at(-1);
+        if (optionsForRequest.headers.Authorization !== "Bearer test-" + id + "-code") return { ok: false, json: async () => ({ error: "Vale kood." }) };
+        if (optionsForRequest.method === "PUT") {
+          if (options.profileSaveFailure) return { ok: false, json: async () => ({ error: "Teenuse tõrge." }) };
+          remoteProfiles.set(id, { id, name: "Kasutaja " + id.at(-1), enabled: true, updated_at: "2026-10-20T22:30:00Z", settings: JSON.parse(optionsForRequest.body) });
+        }
+        return { ok: true, json: async () => structuredClone(remoteProfiles.get(id)) };
+      }
       const data = JSON.parse(fs.readFileSync(path.join(projectRoot, name), "utf8"));
       return { ok: true, json: async () => data };
     }
+
   });
   for (const [, name] of html.matchAll(/<script src="([^"]+)" defer><\/script>/g)) {
     vm.runInContext(fs.readFileSync(path.join(projectRoot, name), "utf8"), context);
   }
   await new Promise((resolve) => setImmediate(resolve));
-  return { context, nodes, saved, exported: () => exported };
+  return { context, nodes, saved, remoteProfiles, exported: () => exported };
 }
 
 test("both pages render research and preserve daily assessments when stocks change", async () => {
@@ -163,4 +179,38 @@ test("blocked storage and missing settings do not break the main view", async ()
   assert.equal(failed.nodes.get("stock-list").children.length, 5);
   assert.ok(failed.nodes.get("tradingview-chart").children.length > 0);
   assert.match(failed.nodes.get("settings-status").textContent, /ei saanud laadida/);
+});
+
+test("server profiles save without exporting a file and keep users separate", async () => {
+  const page = await loadPage("index.html", { profileApi: true });
+  assert.equal(page.nodes.get("settings-save").disabled, true);
+  assert.equal(page.nodes.get("settings-export").hidden, true);
+  page.nodes.get("profile-code").value = "test-user-1-code";
+  await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  assert.equal(page.nodes.get("settings-save").disabled, false);
+  page.nodes.get("target-KO").value = "60";
+  await page.nodes.get("research-form").handlers.submit({ preventDefault() {} });
+  assert.equal(page.remoteProfiles.get("user-1").settings.targets.KO, 60);
+  assert.match(page.nodes.get("settings-status").textContent, /salvestatud/);
+  assert.equal(page.saved.has("stock-radar-settings"), false);
+  page.nodes.get("profile-select").value = "user-2";
+  page.nodes.get("profile-select").handlers.change();
+  assert.equal(page.nodes.get("target-KO").value, "");
+  assert.equal(page.nodes.get("settings-save").disabled, true);
+  page.nodes.get("profile-code").value = "test-user-2-code";
+  await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  assert.equal(page.nodes.get("target-KO").value, "");
+  assert.equal(page.remoteProfiles.get("user-1").settings.targets.KO, 60);
+  assert.equal(page.nodes.get("profile-code").value, "");
+});
+
+test("failed server saves do not claim success or persist new local targets", async () => {
+  const page = await loadPage("tradingview.html", { profileApi: true, profileSaveFailure: true });
+  page.nodes.get("profile-code").value = "test-user-1-code";
+  await page.nodes.get("profile-form").handlers.submit({ preventDefault() {} });
+  page.nodes.get("target-KO").value = "61";
+  await page.nodes.get("research-form").handlers.submit({ preventDefault() {} });
+  assert.match(page.nodes.get("settings-status").textContent, /ei õnnestunud/);
+  assert.equal(page.remoteProfiles.get("user-1").settings.targets.KO, null);
+  assert.equal(page.saved.has("stock-radar-settings"), false);
 });

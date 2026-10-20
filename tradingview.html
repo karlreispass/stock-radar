@@ -21,6 +21,7 @@
   <script src="tradingview.js" defer></script>
   <script src="analysis.js" defer></script>
   <script src="research.js" defer></script>
+  <script src="profiles.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -102,6 +103,22 @@
       <h2 id="research-heading">Sihthind ja signaalide tulemused</h2>
       <p id="long-trend" class="section-caption"></p>
       <p id="target-status" class="target-status" role="status">Laadin sihthinda…</p>
+      <div class="profile-panel" aria-labelledby="profile-heading">
+        <h3 id="profile-heading">Vali oma profiil</h3>
+        <form id="profile-form" class="profile-controls">
+          <label>Profiil<select id="profile-select" disabled>
+            <option value="user-1">Kasutaja 1</option>
+            <option value="user-2">Kasutaja 2</option>
+            <option value="user-3">Kasutaja 3</option>
+          </select></label>
+          <label>Profiili kood<input id="profile-code" type="password" minlength="12" maxlength="128" autocomplete="current-password" placeholder="Sinu profiili kood" disabled></label>
+          <button id="profile-unlock" class="secondary" type="submit" disabled>Ava profiil</button>
+          <button id="profile-lock" class="secondary" type="button" disabled>Lukusta</button>
+        </form>
+        <p id="profile-status" class="section-caption" role="status">Kontrollin profiiliteenuse ühendust…</p>
+        <p class="section-caption">Vali profiil ja ava see omaniku antud koodiga. Salvestatud valikuid kontrollitakse ka suletud lehe korral. Kõigi profiilide signaalid lähevad ühisesse repo Issue-voogu; teavitustes olevad hinnad ja profiilinimed on repo lugejatele nähtavad.</p>
+      </div>
+
       <details>
         <summary>Muuda sihthindu, teavitusi ja võrdluse kulusid</summary>
         <form id="research-form">
@@ -126,7 +143,7 @@
             <label>Võrdluse igakuine sissemakse, USD<input id="backtest-monthly" type="number" min="0.01" max="1000000" step="any" value="1000" required></label>
           </div>
           <div class="settings-actions"><button id="settings-save" class="secondary" type="submit" disabled>Rakenda selles brauseris</button><button id="settings-export" class="secondary" type="button" disabled>Laadi settings.json alla</button></div>
-          <p class="section-caption">Brauseri valikud ei muuda automaatikat. Teavituste muutmiseks asenda repos allalaaditud settings.json, tee commit ja push. GitHubis luba Watch → Custom → Issues ning meilisätted. Sellel lehel ei saadeta maaklerile ordereid.</p>
+          <p id="legacy-settings-note" class="section-caption">Brauseri valikud ei muuda automaatikat. Teavituste muutmiseks asenda repos allalaaditud settings.json, tee commit ja push. GitHubis luba Watch → Custom → Issues ning meilisätted. Sellel lehel ei saadeta maaklerile ordereid.</p>
           <p id="settings-status" class="section-caption" role="status">Laadin avaldatud seadistust…</p>
         </form>
       </details>
