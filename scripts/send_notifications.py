@@ -11,46 +11,71 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+if __package__:
+    from .signals import is_candidate, validate_settings
+else:
+    from signals import is_candidate, validate_settings
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SITE_URL = "https://karlreispass.github.io/stock-radar/"
 
 
-def find_signals(data, today=None):
+def find_signals(data, today=None, settings=None):
     today = today or datetime.now(timezone.utc).date()
     if data.get("mode") != "live" or data.get("rsi_period") != 14:
         raise ValueError("Teavitusteks on vaja pärisandmeid ja RSI perioodi 14.")
     if not isinstance(data.get("stocks"), list) or not data["stocks"]:
         raise ValueError("Aktsiate andmed puuduvad.")
-    events = []
-    seen_symbols = set()
+    enabled = settings["events"] if settings else {kind: True for kind in ("watch", "candidate", "target", "oversold", "recovery")}
+    targets = settings["targets"] if settings else {}
+    events, seen_symbols = [], set()
     for stock in data["stocks"]:
         symbol = stock["symbol"]
         if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", symbol) or symbol in seen_symbols:
             raise ValueError("Aktsiate sümbolid peavad olema korrektsed ja unikaalsed.")
         seen_symbols.add(symbol)
-        if len(stock["history"]) < 2:
+        history = stock["history"]
+        if len(history) < 2:
             raise ValueError("Teavituseks on vaja vähemalt kahte kauplemispäeva.")
-        previous, latest = stock["history"][-2:]
+        previous_day = None
+        for point in history:
+            point_day = date.fromisoformat(point["date"])
+            if previous_day is not None and point_day <= previous_day:
+                raise ValueError("Kauplemispäevad ei ole õiges järjestuses.")
+            previous_day = point_day
+            price = point["close"]
+            rsi = point["rsi"]
+            if type(price) not in (int, float) or not math.isfinite(price) or price <= 0:
+                raise ValueError("Sulgemishind on vigane.")
+            if rsi is not None and (type(rsi) not in (int, float) or not math.isfinite(rsi) or not 0 <= rsi <= 100):
+                raise ValueError("RSI väärtus on vigane.")
+        previous, latest = history[-2:]
         day = date.fromisoformat(latest["date"])
-        if date.fromisoformat(previous["date"]) >= day:
-            raise ValueError("Kauplemispäevad ei ole õiges järjestuses.")
-        for value in [previous["rsi"], latest["rsi"]]:
-            if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 100:
-                raise ValueError("Viimaste päevade RSI väärtused on vigased.")
-        if not isinstance(latest["close"], (int, float)) or not math.isfinite(latest["close"]) or latest["close"] <= 0:
-            raise ValueError("Viimane sulgemishind on vigane.")
+        if previous["rsi"] is None or latest["rsi"] is None:
+            raise ValueError("Viimaste päevade RSI väärtused on vigased.")
         if not 0 <= (today - day).days <= 4:
             continue
+        kinds = []
+        if previous["rsi"] >= 40 and latest["rsi"] < 40:
+            kinds.append("watch")
         if previous["rsi"] >= 30 and latest["rsi"] < 30:
-            kind = "oversold"
-        elif previous["rsi"] < 30 and latest["rsi"] >= 30:
-            kind = "recovery"
-        else:
-            continue
-        events.append({
-            "symbol": symbol, "name": stock["name"], "date": day.isoformat(),
-            "close": latest["close"], "previous_rsi": previous["rsi"], "rsi": latest["rsi"], "kind": kind,
-        })
+            kinds.append("oversold")
+        if previous["rsi"] < 30 and latest["rsi"] >= 30:
+            kinds.append("recovery")
+        if is_candidate(history, len(history) - 1) and not is_candidate(history, len(history) - 2):
+            kinds.append("candidate")
+        target = targets.get(symbol)
+        previous_quote, quote = previous.get("quote_close"), latest.get("quote_close")
+        if target is not None and all(type(value) in (int, float) and math.isfinite(value) and value > 0 for value in (previous_quote, quote)):
+            if previous_quote > target >= quote:
+                kinds.append("target")
+        for kind in kinds:
+            if enabled[kind]:
+                events.append({
+                    "symbol": symbol, "name": stock["name"], "date": day.isoformat(),
+                    "close": latest["close"], "quote_close": quote,
+                    "previous_rsi": previous["rsi"], "rsi": latest["rsi"], "kind": kind, "target": target,
+                })
     return events
 
 
@@ -59,31 +84,36 @@ def day_marker(day):
 
 
 def event_marker(event):
-    return f"<!-- stock-radar:rsi-event:v1:{event['date']}:{event['symbol']}:{event['kind']} -->"
+    target = f":{event['target']}" if event["kind"] == "target" else ""
+    return f"<!-- stock-radar:rsi-event:v1:{event['date']}:{event['symbol']}:{event['kind']}{target} -->"
 
 
 def create_issue_body(events, site_url):
+    labels = {
+        "watch": "RSI langes alla 40 · jälgimisala",
+        "oversold": "RSI langes alla 30",
+        "recovery": "RSI taastus vähemalt 30 peale",
+        "candidate": "Võimalik ostukandidaat · kolm tingimust täidetud",
+        "target": "Sihthind saavutatud päeva sulgemisel",
+    }
     lines = [
-        day_marker(events[0]["date"]),
-        "## Uued RSI-signaalid",
-        "",
+        day_marker(events[0]["date"]), "## Uued aktsiasignaalid", "",
         "| Ettevõte | Signaal | RSI (14) | Korrigeeritud hind |",
         "| --- | --- | --- | --- |",
     ]
     for event in events:
-        label = "RSI langes alla 30" if event["kind"] == "oversold" else "RSI taastus vähemalt 30 peale"
+        label = labels[event["kind"]]
+        if event["kind"] == "target":
+            label += f" · siht {event['target']:.2f}, korrigeerimata sulgemishind {event['quote_close']:.2f} USD"
         lines.append(
             f"| {event['name']} ({event['symbol']}) | {label} | "
             f"{event['previous_rsi']:.2f} → {event['rsi']:.2f} | {event['close']:.2f} USD |"
         )
     lines.extend([
-        "",
-        "Kauplemispäev: **" + events[0]["date"] + "**.",
-        "",
-        "[Vaata graafikuid](" + site_url + ")",
-        "",
-        "Signaal põhineb lõppenud kauplemispäevadel. Madal RSI ei kinnita hinnapõhja ega taga tootlust.",
-        "",
+        "", "Kauplemispäev: **" + events[0]["date"] + "**.", "",
+        "[Vaata graafikuid](" + site_url + ")", "",
+        "Ostukandidaat: RSI oli viimase viie kauplemispäeva jooksul alla 40, RSI on kõrgem kui viis kauplemispäeva tagasi ning hind ületas viimasel päeval 20 päeva keskmise.",
+        "Signaal põhineb lõppenud kauplemispäevadel. Sihthind ei tähenda maaklerile saadetud orderit. Madal RSI ei kinnita hinnapõhja ega taga tootlust.", "",
     ])
     lines.extend(event_marker(event) for event in events)
     return "\n".join(lines)
@@ -130,7 +160,7 @@ def publish_day(events, repository, token, site_url):
             break
     if existing is None:
         github_request("POST", issue_path, token, {
-            "title": "RSI-signaalid · " + day,
+            "title": "Aktsiasignaalid · " + day,
             "body": create_issue_body(events, site_url),
         })
         return True
@@ -147,30 +177,86 @@ def publish_day(events, repository, token, site_url):
     return True
 
 
-def run(data_path, dry_run=False):
-    data = json.loads(data_path.read_text(encoding="utf-8"))
-    if data.get("mode") == "demo":
-        print("Näidisandmetest GitHubi teavitusi ei looda.")
-        return
-    events = find_signals(data)
-    if not events:
-        print("Uusi RSI-signaale ei ole; GitHubi teavitusi ei loodud.")
-        return
-    site_url = os.environ.get("SITE_URL") or DEFAULT_SITE_URL
-    grouped = {}
-    for event in events:
-        grouped.setdefault(event["date"], []).append(event)
-    if dry_run:
-        for day, daily_events in sorted(grouped.items()):
-            print("RSI-signaalid · " + day)
-            print(create_issue_body(daily_events, site_url))
-        return
+def notification_credentials():
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     token = os.environ.get("GITHUB_TOKEN", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("GITHUB_REPOSITORY peab olema kujul omanik/repo.")
     if not token.strip():
         raise ValueError("GITHUB_TOKEN puudub. Actions annab selle automaatselt.")
+    return repository, token
+
+
+def publish_health(message, fingerprint, repository, token):
+    """One persistent health Issue, with each distinct condition reported once."""
+    marker = "<!-- stock-radar:health:v1 -->"
+    event = "<!-- stock-radar:health-event:" + fingerprint + " -->"
+    issue_path = f"/repos/{repository}/issues"
+    body = marker + "\n\n" + message + "\n\n" + event
+    for issue in github_pages(issue_path, token, {"state": "all"}):
+        if "pull_request" in issue or marker not in (issue.get("body") or ""):
+            continue
+        comment_path = issue_path + f"/{issue['number']}/comments"
+        bodies = [issue.get("body") or ""]
+        bodies.extend(comment.get("body") or "" for comment in github_pages(comment_path, token))
+        if any(event in text for text in bodies):
+            return False
+        if issue.get("state") == "closed":
+            github_request("PATCH", issue_path + f"/{issue['number']}", token, {"state": "open"})
+        github_request("POST", comment_path, token, {"body": body})
+        return True
+    github_request("POST", issue_path, token, {"title": "Stock Radar · andmete ja avaldamise tervis", "body": body})
+    return True
+
+
+def stale_snapshot(data, today=None):
+    today = today or datetime.now(timezone.utc).date()
+    dates = sorted(stock["history"][-1]["date"] for stock in data["stocks"])
+    oldest = date.fromisoformat(dates[0])
+    if (today - oldest).days <= 4:
+        return None
+    fingerprint = "stale-" + oldest.isoformat()
+    message = "Päevaandmed võivad olla aegunud. Vanim viimane kauplemispäev: **" + oldest.isoformat() + "**. Uusi ostuteavitusi aegunud andmetest ei saadeta. Kontrolli Actionsi viimast käivitust."
+    return message, fingerprint
+
+
+def run(data_path, dry_run=False, settings_path=None, failure=False):
+    settings_path = settings_path or ROOT / "settings.json"
+    settings = validate_settings(json.loads(settings_path.read_text(encoding="utf-8")))
+    if failure:
+        if not settings["health_alerts"]:
+            return
+        today = datetime.now(timezone.utc).date().isoformat()
+        message = "Andmete uuendamine või lehe avaldamine ebaõnnestus. Veebis võib olla eelmine andmefail. Kontrolli repo Actionsi ebaõnnestunud käivitust."
+        if dry_run:
+            print(message)
+        else:
+            repository, token = notification_credentials()
+            publish_health(message, "workflow-failure-" + today, repository, token)
+        return
+    data = json.loads(data_path.read_text(encoding="utf-8"))
+    if data.get("mode") == "demo":
+        print("Näidisandmetest GitHubi teavitusi ei looda.")
+        return
+    events = find_signals(data, settings=settings)
+    health = stale_snapshot(data) if settings["health_alerts"] else None
+    if not events and not health:
+        print("Uusi signaale ei ole; GitHubi teavitusi ei loodud.")
+        return
+    site_url = os.environ.get("SITE_URL") or DEFAULT_SITE_URL
+    grouped = {}
+    for event in events:
+        grouped.setdefault(event["date"], []).append(event)
+    if dry_run:
+        if health:
+            print(health[0])
+        for day, daily_events in sorted(grouped.items()):
+            print("Aktsiasignaalid · " + day)
+            print(create_issue_body(daily_events, site_url))
+        return
+    repository, token = notification_credentials()
+    if health:
+        publish_health(*health, repository, token)
     for day, daily_events in sorted(grouped.items()):
         changed = publish_day(daily_events, repository, token, site_url)
         print(day + (": teavitus lisatud GitHubi." if changed else ": kõik signaalid on juba avaldatud."))
@@ -179,10 +265,12 @@ def run(data_path, dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=ROOT / "data" / "stocks.json")
+    parser.add_argument("--settings", type=Path, default=ROOT / "settings.json")
+    parser.add_argument("--failure", action="store_true", help="Report a failed refresh or deployment.")
     parser.add_argument("--dry-run", action="store_true", help="Preview without calling GitHub or creating Issues.")
     args = parser.parse_args()
     try:
-        run(args.data, args.dry_run)
+        run(args.data, args.dry_run, args.settings, args.failure)
     except HTTPError as error:
         error.close()
         print(

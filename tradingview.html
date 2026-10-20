@@ -19,6 +19,8 @@
   </script>
   <link rel="stylesheet" href="styles.css">
   <script src="tradingview.js" defer></script>
+  <script src="analysis.js" defer></script>
+  <script src="research.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -87,10 +89,56 @@
         <div><span>Hinna suund · 5 kauplemispäeva</span><strong id="price-trend">—</strong></div>
         <div><span>RSI suund · 5 kauplemispäeva</span><strong id="rsi-trend">—</strong></div>
         <div><span>Hind / 20 päeva keskmine</span><strong id="average-position">—</strong></div>
+        <div><span>Hind / 50 päeva keskmine</span><strong id="average-50">—</strong></div>
+        <div><span>Hind / 200 päeva keskmine</span><strong id="average-200">—</strong></div>
       </div>
       <div class="detail-bottom"><div><span class="eyebrow">TEHNILINE HINNANG</span><h3 id="assessment-title">—</h3><p id="signal-description">—</p></div><div><span class="eyebrow">VIIMASE 30 KALENDRIPÄEVA RSI</span><p id="rsi-range">—</p></div></div>
       <p class="chart-note">Ülal olev hinnang kasutab ainult lõppenud kauplemispäevi. TradingView’ RSI on eraldi indikaator ja võib ka jooksva küünla jooksul muutuda. Täpsed Yahoo päevaväärtused on all tabelis.</p>
       <details><summary>Vaata hinnangu aluseks olevaid Yahoo päevaandmeid</summary><div class="history-scroll"><table><thead><tr><th>Kuupäev</th><th>Hind USD</th><th>RSI</th><th>Signaal</th></tr></thead><tbody id="history-list"></tbody></table></div></details>
+    </section>
+
+    <section class="panel research-panel" aria-labelledby="research-heading">
+      <p class="eyebrow">OSTUPLAAN JA AJALOOLINE VÕRDLUS</p>
+      <h2 id="research-heading">Sihthind ja signaalide tulemused</h2>
+      <p id="long-trend" class="section-caption"></p>
+      <p id="target-status" class="target-status" role="status">Laadin sihthinda…</p>
+      <details>
+        <summary>Muuda sihthindu, teavitusi ja võrdluse kulusid</summary>
+        <form id="research-form">
+          <p class="section-caption">Sihthind on sinu valitud maksimaalne ostuhind USD-des. Kontrollime päeva sulgemishinda, mitte päevasisest puudutust. Tühi väli lülitab sihthinna välja.</p>
+          <div class="settings-grid">
+            <label>Coca-Cola (KO)<input id="target-KO" type="number" min="0.0001" step="any" placeholder="Määramata"></label>
+            <label>PepsiCo (PEP)<input id="target-PEP" type="number" min="0.0001" step="any" placeholder="Määramata"></label>
+            <label>Johnson &amp; Johnson (JNJ)<input id="target-JNJ" type="number" min="0.0001" step="any" placeholder="Määramata"></label>
+            <label>Procter &amp; Gamble (PG)<input id="target-PG" type="number" min="0.0001" step="any" placeholder="Määramata"></label>
+            <label>Colgate-Palmolive (CL)<input id="target-CL" type="number" min="0.0001" step="any" placeholder="Määramata"></label>
+          </div>
+          <fieldset class="alert-options"><legend>GitHubi teavitused uue sündmuse korral</legend>
+            <label><input id="event-watch" type="checkbox"> RSI langeb alla 40</label>
+            <label><input id="event-candidate" type="checkbox"> Võimalik ostukandidaat</label>
+            <label><input id="event-target" type="checkbox"> Sihthind saavutatud</label>
+            <label><input id="event-oversold" type="checkbox"> RSI langeb alla 30</label>
+            <label><input id="event-recovery" type="checkbox"> RSI taastub vähemalt 30 peale</label>
+            <label><input id="event-health" type="checkbox"> Andmed vananevad või avaldamine ebaõnnestub</label>
+          </fieldset>
+          <div class="settings-grid">
+            <label>Kulu tehingu kohta, baaspunkti (10 = 0,10%)<input id="backtest-fee" type="number" min="0" max="500" step="any" value="10" required></label>
+            <label>Võrdluse igakuine sissemakse, USD<input id="backtest-monthly" type="number" min="0.01" max="1000000" step="any" value="1000" required></label>
+          </div>
+          <div class="settings-actions"><button id="settings-save" class="secondary" type="submit" disabled>Rakenda selles brauseris</button><button id="settings-export" class="secondary" type="button" disabled>Laadi settings.json alla</button></div>
+          <p class="section-caption">Brauseri valikud ei muuda automaatikat. Teavituste muutmiseks asenda repos allalaaditud settings.json, tee commit ja push. GitHubis luba Watch → Custom → Issues ning meilisätted. Sellel lehel ei saadeta maaklerile ordereid.</p>
+          <p id="settings-status" class="section-caption" role="status">Laadin avaldatud seadistust…</p>
+        </form>
+      </details>
+      <h3>Ajaloolised ostukandidaadid</h3>
+      <p id="backtest-period" class="section-caption">Laadin võrdlust…</p>
+      <div class="table-scroll"><table><thead><tr><th>Hoidmisaeg</th><th>Lõpetatud juhtumeid</th><th>Keskmine netomuutus</th><th>Positiivsete osakaal</th><th>Halvim ostujärgne langus</th></tr></thead><tbody id="backtest-results"></tbody></table></div>
+      <p class="chart-note">Ost toimub signaalile järgneva kauplemispäeva sulgemishinnaga; müük 5, 20 või 60 kauplemispäeva hiljem. Lõpetamata juhtumeid ei arvestata. Halvim langus mõõdab sulgemishindade langust ostust hoidmisaja lõpuni, enne kulusid. Juhtumite ajavahemikud võivad kattuda ega ole sõltumatud.</p>
+      <h3>Signaali ootamine või igakuine ostmine?</h3>
+      <p id="backtest-comparison" class="section-caption"></p>
+      <p id="backtest-cost" class="section-caption"></p>
+      <p class="chart-note">Mõlemad alustavad samal kuupäeval pärast 200 päeva eellugu ning saavad samad sissemaksed. Signaalistrateegia ostab kogunenud raha eest alles signaalile järgneval sulgemisel, teine ostab igakuiselt. Lõppväärtus sisaldab kasutamata raha ja positsiooni müügikulu. Raha intress, maksud ja valuutavahetus puuduvad; lubatud on aktsia murdosad. Korrigeeritud hinnad arvestavad dividende ja splitte, dividende eraldi juurde ei liideta. Võrdlus kasutab praegust viit aktsiat ja piiratud ajalugu ega ole sõltumatu strateegia tõestus.</p>
+      <details><summary>Vaata iga ajaloolise signaali tulemust</summary><div class="history-scroll"><table><thead><tr><th>Signaal</th><th>Ost</th><th>Hoidmispäevi</th><th>Müük</th><th>Netomuutus</th><th>Halvim langus</th></tr></thead><tbody id="backtest-trades"></tbody></table></div></details>
     </section>
     <footer><span>◉ Stock Radar <span class="footer-separator">/</span> Teadlikum ülevaade, päev korraga.</span><p>RSI ei ennusta kuu põhja ega taga tootlust. Tehnilised signaalid ei ole personaalne investeerimissoovitus.</p><a href="https://github.com/karlreispass/stock-radar" target="_blank" rel="noopener noreferrer">Vaata GitHubis ↗</a></footer>
   </main>

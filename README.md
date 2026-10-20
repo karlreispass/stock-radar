@@ -62,8 +62,8 @@ GitHubi juhend: https://docs.github.com/en/pages/getting-started-with-github-pag
 - Tänane päev võetakse kaasa alles pärast kella 17:00 New Yorgis, et vältida poolelioleva
   kauplemispäeva kasutamist. Turupühadel jääb viimaseks eelmine olemasolev kauplemispäev.
 - Kõik signaalid ja päevamuutus kasutavad neid korrigeeritud hindu.
-- **Alla 30:** RSI < 30. **Taastumine:** eelmine RSI < 30 ja viimane RSI >= 30.
-  **Üle 70:** RSI > 70. Muul juhul neutraalne.
+- **Jälgimisala:** RSI < 40. **Alla 30:** RSI < 30. **Taastumine:** eelmine RSI < 30 ja viimane RSI >= 30.
+  **Üle 70:** RSI > 70. Vahemikus 40–70 neutraalne; 30 kuni alla 40 jälgimisala.
 - Muutumatu hinna erijuht: RSI 50; ainult tõusude korral 100; ainult languste korral 0.
 - 30 päeva vahemik tähendab 30 kalendripäeva viimase andmepäeva suhtes, mitte 30 kauplemispäeva.
 - Vanema kui nelja kalendripäeva andmekuupäeva puhul kuvab veeb aegumise hoiatuse.
@@ -72,7 +72,7 @@ GitHubi juhend: https://docs.github.com/en/pages/getting-started-with-github-pag
 
 RSI ei näita ettevõtte õiglast väärtust ega ennusta kuu madalaimat hinda.
 Tegemist on tehnilise jälgijaga, mitte personaalse investeerimissoovitusega.
-Aktsiate nimekiri on sektori poolest koondunud. Ajaloolist tootluse võrdlust esimeses versioonis ei ole.
+Aktsiate nimekiri on sektori poolest koondunud. Ajaloolise võrdluse eeldused ja piirangud on allpool.
 
 yfinance on mitteametlik teek, mis ei ole Yahoo heaks kiidetud ega Yahoo'ga seotud.
 See on mõeldud uurimiseks ja õppimiseks; Yahoo andmete kasutamisel arvesta Yahoo tingimuste ning
@@ -91,8 +91,8 @@ Ubuntu GitHub Actionsi keskkonnas on süsteemi ajavööndiandmed juba olemas.
 
 ## GitHubi teavitused ja meilid
 
-Pärast edukat Pagesi avaldamist loob eraldi `notify` töö uute RSI-signaalidega GitHubi Issue.
-Iga kauplemispäeva signaalid koondatakse ühte Issue'sse pealkirjaga **RSI-signaalid · AAAA-KK-PP**.
+Pärast edukat Pagesi avaldamist loob eraldi `notify` töö uute aktsiasignaalidega GitHubi Issue. Laiendatud valikud on kirjeldatud allpool sihthindade ja ajaloolise võrdluse osas.
+Iga kauplemispäeva signaalid koondatakse ühte Issue'sse pealkirjaga **Aktsiasignaalid · AAAA-KK-PP**.
 
 - **Alla 30:** eelmine RSI >= 30 ja viimane RSI < 30.
 - **Taastumine:** eelmine RSI < 30 ja viimane RSI >= 30.
@@ -146,3 +146,71 @@ See näitab viimase päeva võimalikke signaale, arvestamata varem avaldatud tea
 Kui signaale ei ole, kuvatakse sellekohane teade.
 Testides on kõik GitHubi API päringud simuleeritud; päris Issue'sid ei looda.
 
+
+## Sihthinnad, trend ja ajalooline võrdlus
+
+Mõlemal lehel on **Ostuplaan ja ajalooline võrdlus**. Seal saad sisestada sihthinnad,
+valida teavitused ning muuta võrdluse tehingukulu ja igakuist sissemakset.
+Sihthindu pole ette määratud. **Rakenda selles brauseris** salvestab ainult sinu brauseri
+valikud; see ei muuda GitHub Actionsi teavitusi.
+
+Automaatika seadistamiseks vajuta **Laadi settings.json alla**, asenda repo juurkaustas
+olev samanimeline fail, tee commit ja push. Võid faili ka otse GitHubis muuta.
+Teavitused kasutavad alati repos olevat seadistust, ka siis, kui brauser on suletud.
+Tehingukulu on baaspunktides ühe tehingu poole kohta: 10 = 0,10%; see on muudetav
+tasude ja hinnavahe hinnang. Kuumakse on võrdluse sisend, mitte automaatne maksekorraldus.
+
+Uued teavitused:
+- RSI langeb esimest korda vähemalt 40 pealt alla 40.
+- Võimalik ostukandidaat: RSI on viimasel viiel kauplemispäeval olnud alla 40,
+  viimase päeva RSI on kõrgem kui viis kauplemispäeva tagasi ning hind ületab
+  viimasel päeval 20 päeva keskmise alt üles. Kõik tingimused peavad täituma.
+- Sihthind: eelmine korrigeerimata sulgemishind oli sihist kõrgem, viimane on sihiga
+  võrdne või madalam. Päevasisest puudutust ei jälgita. Esialgu juba sihist madalamal
+  püsimine ei loo iga päev uut teadet.
+- Senised RSI alla 30 ja tagasi vähemalt 30 peale teavitused jäävad valitavaks.
+- Sama kauplemispäeva uued sündmused koondatakse ühte Issue'sse; varem avaldatud
+  sündmusi ei korrata, ka suletud Issue korral.
+
+Sihthinna kontroll vajab uut, `quote_close` välja sisaldavat andmefaili.
+See tekib järgmisel edukal Actionsi andmelaadimisel. Korrigeeritud `close` jääb
+RSI, hinnakeskmiste ja ajaloolise võrdluse aluseks. 50 ja 200 päeva hinnakeskmised
+on lisatud mõlema lehe detailidesse ning päevavaate graafikule.
+Need ei muuda olemasolevat kolme tingimusega ostukandidaadi reeglit.
+
+Andmete vananemise märguanne tekib üle nelja kalendripäeva vanuse andmekuupäeva korral.
+Andmelaadimise või Pagesi avaldamise vea korral käivitub eraldi `health` töö isegi siis,
+kui tavaline `notify` jäi vahele. Tervisemärkused koondatakse eraldi püsivasse Issue'sse.
+Sama vana andmekuupäeva ei teatata korduvalt; töövoo tõrkest saadetakse kuni üks
+märkus UTC päeva kohta. Suletud tervise-Issue avatakse uue sündmuse korral.
+Kui Actionsi ajastus ise ei käivitu, ei saa see automaatika sellest ise teavitada.
+
+### Mida ajalooline võrdlus mõõdab?
+
+- Kasutatakse olemasolevat ligikaudu kahe aasta ajalugu. Esimesed 200 hinnapäeva on eellugu.
+- Signaal arvutatakse ainult sel hetkel teada olnud hindadest. Ost toimub järgmisel
+  olemasoleval kauplemispäeval sulgemishinnaga, mitte signaalipäeva juba teada oleva hinnaga.
+- Näidatakse 5, 20 ja 60 kauplemispäeva hoidmise keskmist netomuutust, positiivsete
+  juhtumite osakaalu ja halvimat ostujärgset sulgemishinna langust. Lõpetamata
+  hoidmisperioodid jäetakse välja. Juhtumid võivad kattuda ega ole sõltumatud.
+- Kõrval võrreldakse signaali ootamist igakuise ostmisega. Mõlemad saavad samadel
+  kuupäevadel sama sissemakse, raha lisandub kuu esimesel olemasoleval kauplemispäeval.
+  Signaalistrateegia ostab kogu kogunenud raha eest; regulaarne strateegia ostab kohe.
+  Lõppväärtus sisaldab kasutamata raha ja aktsiate müügikulu.
+- Mõlemal arvestatakse ostu- ja müügikulu. Lubatud on murdosad; raha intressi, makse
+  ja valuutavahetust ei modelleerita. Korrigeeritud hinnad arvestavad dividende;
+  dividende eraldi juurde ei lisata.
+- Näidisandmete võrdlus on selgelt märgitud. Praeguse viie aktsia ja sama andmestiku
+  peal tehtud võrdlus ei tõesta strateegia tulevast edu ega väldi valikukallutatust.
+- Sihthinnad ega võrdlus ei loo maaklerile ordereid.
+
+Kohalikud lisakontrollid:
+
+```powershell
+node --test tests/analysis.test.cjs
+.\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
+```
+
+Teavituste eelvaade: `python scripts/send_notifications.py --dry-run`.
+Tõrketeate eelvaade: `python scripts/send_notifications.py --failure --dry-run`.
+Mõlemad on eelvaated; päris teavitused saadab pärast avaldamist Actions.

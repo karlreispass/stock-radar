@@ -60,13 +60,15 @@ def make_history(rows):
     rows = sorted(rows, key=lambda row: row[0])
     if len(rows) < 200:
         raise ValueError("At least 200 daily observations are required.")
-    if len({day for day, _ in rows}) != len(rows):
+    if len({row[0] for row in rows}) != len(rows):
         raise ValueError("Duplicate trading dates.")
-    prices = [price for _, price in rows]
+    if any(len(row) > 2 and (not math.isfinite(row[2]) or row[2] <= 0) for row in rows):
+        raise ValueError("Market closing prices must be finite and positive.")
+    prices = [row[1] for row in rows]
     rsi_values = calculate_rsi(prices)
     return [
-        {"date": day.isoformat(), "close": round(price, 4), "rsi": round(rsi, 4) if rsi is not None else None}
-        for (day, price), rsi in zip(rows, rsi_values)
+        {"date": row[0].isoformat(), "close": round(row[1], 4), "quote_close": round(row[2] if len(row) > 2 else row[1], 4), "rsi": round(rsi, 4) if rsi is not None else None}
+        for row, rsi in zip(rows, rsi_values)
     ]
 
 
@@ -76,10 +78,10 @@ def download_history(symbol, cutoff):
     error = None
     for attempt in range(3):
         try:
-            frame = yf.Ticker(symbol).history(period="2y", interval="1d", auto_adjust=True, actions=False)
+            frame = yf.Ticker(symbol).history(period="2y", interval="1d", auto_adjust=False, actions=False)
             rows = [
-                (timestamp.date(), float(close))
-                for timestamp, close in frame["Close"].items()
+                (timestamp.date(), float(row["Adj Close"]), float(row["Close"]))
+                for timestamp, row in frame.iterrows()
                 if timestamp.date() <= cutoff
             ]
             history = make_history(rows)

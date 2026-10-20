@@ -23,47 +23,6 @@ function stockSignal(stock) {
 }
 
 
-function movingAverage(history, index) {
-  if (index < 19) return null;
-  const prices = history.slice(index - 19, index + 1);
-  return prices.reduce((sum, point) => sum + point.close, 0) / 20;
-}
-
-function analyzeStock(stock) {
-  const history = stock.history;
-  const index = history.length - 1;
-  const latest = history[index];
-  const baseline = history[index - 5];
-  const average = movingAverage(history, index);
-  const previousAverage = movingAverage(history, index - 1);
-  if (!baseline || baseline.rsi === null || average === null || previousAverage === null) {
-    return { label: "Andmeid vähe", kind: "", description: "Hinnanguks on vaja vähemalt 21 sulgemishinda ja RSI väärtusi viie kauplemispäeva vahega.", priceChange: null, rsiChange: null, average };
-  }
-  const priceChange = (latest.close / baseline.close - 1) * 100;
-  const rsiChange = latest.rsi - baseline.rsi;
-  const recentlyLow = history.slice(-5).some((point) => point.rsi !== null && point.rsi < 40);
-  const crossedAverage = latest.close > average && history[index - 1].close <= previousAverage;
-  let label = "Selge signaal puudub", kind = "";
-  if (recentlyLow && rsiChange > 0 && crossedAverage) {
-    label = "Võimalik ostukandidaat";
-    kind = "low";
-  } else if (recentlyLow && rsiChange > 0 && priceChange > 0) {
-    label = "Taastumise märgid";
-    kind = "recovery";
-  } else if (priceChange < 0 && rsiChange < 0) {
-    label = "Langussurve jätkub";
-    kind = "high";
-  } else if (latest.rsi < 40) {
-    label = "Jälgimisalas";
-    kind = "watch";
-  }
-  const description = "RSI viimase viie kauplemispäeva jooksul alla 40: " + (recentlyLow ? "jah" : "ei")
-    + ". RSI kõrgem kui viis kauplemispäeva tagasi: " + (rsiChange > 0 ? "jah" : "ei")
-    + ". Hind ületas viimasel kauplemispäeval 20 päeva keskmise: " + (crossedAverage ? "jah" : "ei")
-    + ". Ostukandidaadi jaoks peavad kõik kolm tingimust täituma. See on ajalooliselt kontrollimata tehniline filter.";
-  return { label, kind, description, priceChange, rsiChange, average };
-}
-
 function directionText(change, unit) {
   if (change === null) return "Andmeid vähe";
   const direction = change > 0 ? "Tõuseb" : change < 0 ? "Langeb" : "Muutumatu";
@@ -158,7 +117,9 @@ function renderChart(containerId, points, field) {
   container.replaceChildren();
   if (valid.length < 2) { container.textContent = "Graafiku jaoks pole piisavalt andmeid."; return; }
   const values = valid.map((point) => point[field]);
-  if (!isRsi) values.push(...points.filter((point) => point.average !== null).map((point) => point.average));
+  if (!isRsi) {
+    for (const key of ["average", "average50", "average200"]) values.push(...points.filter((point) => Number.isFinite(point[key])).map((point) => point[key]));
+  }
   const minimum = isRsi ? 0 : Math.min(...values) * 0.985;
   const maximum = isRsi ? 100 : Math.max(...values) * 1.015;
   const x = (index) => left + index / (points.length - 1) * (width - left - right);
@@ -185,6 +146,12 @@ function renderChart(containerId, points, field) {
       .filter(({ point }) => point.average !== null)
       .map(({ point, index }, pathIndex) => (pathIndex ? "L" : "M") + x(index).toFixed(2) + "," + y(point.average).toFixed(2)).join(" ");
     svg.append(svgElement("path", { d: averagePath, fill: "none", stroke: "var(--amber)", "stroke-width": 2, "stroke-dasharray": "6 4" }));
+    for (const [key, color] of [["average50", "var(--trend50)"], ["average200", "var(--trend200)"]]) {
+      const trendPath = points.map((point, index) => ({ point, index })).filter(({ point }) => Number.isFinite(point[key]))
+        .map(({ point, index }, pathIndex) => (pathIndex ? "L" : "M") + x(index).toFixed(2) + "," + y(point[key]).toFixed(2)).join(" ");
+      if (trendPath) svg.append(svgElement("path", { d: trendPath, fill: "none", stroke: color, "stroke-width": 1.8 }));
+    }
+
   }
   points.forEach((point, index) => {
     if (point[field] === null) return;
@@ -207,7 +174,7 @@ function renderDetail() {
   const latest = stock.history.at(-1);
   const cutoff = new Date(latest.date + "T00:00:00Z");
   cutoff.setUTCDate(cutoff.getUTCDate() - state.days);
-  const points = stock.history.map((point, index) => ({ ...point, previousRsi: stock.history[index - 1]?.rsi ?? null, average: movingAverage(stock.history, index) })).filter((point) => Date.parse(point.date) >= cutoff.getTime());
+  const points = stock.history.map((point, index) => ({ ...point, previousRsi: stock.history[index - 1]?.rsi ?? null, average: movingAverage(stock.history, index), average50: movingAverage(stock.history, index, 50), average200: movingAverage(stock.history, index, 200) })).filter((point) => Date.parse(point.date) >= cutoff.getTime());
   byId("detail-title").textContent = stock.name + " · " + stock.symbol;
   byId("detail-subtitle").textContent = stock.sector + " · Viimane kauplemispäev " + formatDate(latest.date);
   byId("detail-price").textContent = "$" + number.format(latest.close);
@@ -231,6 +198,7 @@ function renderDetail() {
     renderChart("price-chart", points, "close");
     renderChart("rsi-chart", points, "rsi");
   }
+  renderResearch(stock);
   const history = byId("history-list");
   history.replaceChildren();
   for (let index = points.length - 1; index >= 0; index--) {
@@ -250,6 +218,7 @@ function validateData(data) {
     let previousDate = "";
     for (const point of stock.history) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(point.date) || !Number.isFinite(Date.parse(point.date)) || point.date <= previousDate || !Number.isFinite(point.close) || point.close <= 0 || !(point.rsi === null || (Number.isFinite(point.rsi) && point.rsi >= 0 && point.rsi <= 100))) throw new Error("Hinnaajalugu on vigane.");
+      if (point.quote_close !== undefined && (!Number.isFinite(point.quote_close) || point.quote_close <= 0)) throw new Error("Sulgemishind on vigane.");
       previousDate = point.date;
     }
     if (stock.history.at(-1).rsi === null) throw new Error("Viimane RSI puudub.");
@@ -313,4 +282,7 @@ byId("ranges")?.addEventListener("click", (event) => {
   }
   if (state.data) renderDetail();
 });
+byId("research-form").addEventListener("submit", saveResearchSettings);
+byId("settings-export").addEventListener("click", exportResearchSettings);
+loadResearchSettings();
 loadData();

@@ -1,0 +1,21 @@
+{
+  "targets": {
+    "KO": null,
+    "PEP": null,
+    "JNJ": null,
+    "PG": null,
+    "CL": null
+  },
+  "events": {
+    "watch": true,
+    "candidate": true,
+    "target": true,
+    "oversold": true,
+    "recovery": true
+  },
+  "health_alerts": true,
+  "backtest": {
+    "fee_bps": 10,
+    "monthly_contribution": 1000
+  }
+}
