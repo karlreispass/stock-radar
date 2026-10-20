@@ -59,32 +59,58 @@ function ready(env) {
     && !codes.includes(env.AUTOMATION_TOKEN);
 }
 
+async function handleChartRequest(url, headers, reply) {
+  const symbol = (url.searchParams.get("symbol") ?? "").trim().toUpperCase().replace(".", "-");
+  if (!/^[A-Z0-9_-]{1,12}$/.test(symbol)) {
+    return reply({ error: "Vigane aktsia sümbol." }, 400);
+  }
+  const allowedIntervals = new Set(["1m", "2m", "5m", "15m", "60m", "1d"]);
+  const allowedRanges = new Set(["1d", "5d", "1mo", "3mo", "1y", "2y"]);
+  const interval = allowedIntervals.has(url.searchParams.get("interval")) ? url.searchParams.get("interval") : "1d";
+  const range = allowedRanges.has(url.searchParams.get("range")) ? url.searchParams.get("range") : "2y";
+  const hosts = ["https://query2.finance.yahoo.com", "https://query1.finance.yahoo.com"];
+  for (const host of hosts) {
+    try {
+      const upstream = await fetch(
+        host + "/v8/finance/chart/" + encodeURIComponent(symbol)
+          + "?interval=" + interval + "&range=" + range + "&includeAdjustedClose=true",
+        { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } }
+      );
+      if (upstream.ok) {
+        return new Response(await upstream.text(), { status: 200, headers });
+      }
+    } catch {
+      // Try next Yahoo host.
+    }
+  }
+  return reply({ error: "Yahoo Finance ei vastanud sümbolile " + symbol + "." }, 502);
+}
+
 export async function handleRequest(request, env) {
   const origin = request.headers.get("Origin");
+  const url = new URL(request.url);
   const headers = {
     "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store",
     "Vary": "Origin", "X-Content-Type-Options": "nosniff"
   };
   const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
-  if (origin && origin !== env.ALLOWED_ORIGIN) return reply({ error: "See veebiaadress ei ole lubatud." }, 403);
+  const isLocalOrigin = origin === "http://localhost:8000" || origin === "http://127.0.0.1:8000";
+  const isChartEndpoint = url.pathname === "/v1/chart";
+
+  if (origin && origin !== env.ALLOWED_ORIGIN && !(isChartEndpoint && isLocalOrigin)) {
+    return reply({ error: "See veebiaadress ei ole lubatud." }, 403);
+  }
   if (origin) headers["Access-Control-Allow-Origin"] = origin;
   if (request.method === "OPTIONS") {
     headers["Access-Control-Allow-Methods"] = "GET, PUT, OPTIONS";
     headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type";
     return new Response(null, { status: 204, headers });
   }
-  if (!ready(env)) return reply({ error: "Profiiliteenus vajab omaniku seadistust." }, 503);
-  const url = new URL(request.url);
-  if (url.pathname === "/health" && request.method === "GET") return reply({ ready: true });
-  if (url.pathname === "/v1/chart" && request.method === "GET") {
-    const symbol = (url.searchParams.get("symbol") ?? "").trim().toUpperCase();
-    if (!/^[A-Z0-9._-]{1,12}$/.test(symbol)) return reply({ error: "Vigane aktsia sümbol." }, 400);
-    const upstream = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(symbol) + "?interval=1d&range=2y&includeAdjustedClose=true", {
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-    if (!upstream.ok) return reply({ error: "Yahoo Finance ei vastanud." }, 502);
-    return new Response(await upstream.text(), { status: 200, headers });
+  if (isChartEndpoint && request.method === "GET") {
+    return handleChartRequest(url, headers, reply);
   }
+  if (!ready(env)) return reply({ error: "Profiiliteenus vajab omaniku seadistust." }, 503);
+  if (url.pathname === "/health" && request.method === "GET") return reply({ ready: true });
   const authorization = request.headers.get("Authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   try {
