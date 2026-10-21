@@ -2,37 +2,14 @@
 
 const CUSTOM_STORAGE_KEY = "stock-radar-custom-stocks";
 const CUSTOM_SELECTED_KEY = "stock-radar-custom-selected";
+const VIEW_STORAGE_KEY = "stock-radar-explorer-view";
 const CUSTOM_WORKER_KEY = "stock-radar-worker-url";
-const CUSTOM_CACHE_KEY = "stock-radar-live-cache-v4";
+const CUSTOM_CACHE_KEY = "stock-radar-live-cache-v5";
 const CACHE_TTL_MS = 15 * 1000;
+const HISTORY_REFRESH_MS = 15 * 60 * 1000;
+const SORT_ORDERS = ["default", "rsi-asc", "rsi-desc", "change-desc", "change-asc", "candidate"];
 
-const DIVIDEND_KINGS_LIST = [
-  { symbol: "KO", tvSymbol: "NYSE:KO", name: "Coca-Cola", sector: "Tarbekaubad", streakYears: 64 },
-  { symbol: "PEP", tvSymbol: "NASDAQ:PEP", name: "PepsiCo", sector: "Tarbekaubad", streakYears: 54 },
-  { symbol: "JNJ", tvSymbol: "NYSE:JNJ", name: "Johnson & Johnson", sector: "Tervishoid", streakYears: 64 },
-  { symbol: "PG", tvSymbol: "NYSE:PG", name: "Procter & Gamble", sector: "Tarbekaubad", streakYears: 70 },
-  { symbol: "CL", tvSymbol: "NYSE:CL", name: "Colgate-Palmolive", sector: "Tarbekaubad", streakYears: 63 },
-  { symbol: "ABBV", tvSymbol: "NYSE:ABBV", name: "AbbVie", sector: "Tervishoid", streakYears: 54 },
-  { symbol: "ABT", tvSymbol: "NYSE:ABT", name: "Abbott Laboratories", sector: "Tervishoid", streakYears: 54 },
-  { symbol: "MCD", tvSymbol: "NYSE:MCD", name: "McDonald's", sector: "Tarbijateenused", streakYears: 50 },
-  { symbol: "WMT", tvSymbol: "NYSE:WMT", name: "Walmart", sector: "Jaekaubandus", streakYears: 53 },
-  { symbol: "LOW", tvSymbol: "NYSE:LOW", name: "Lowe's", sector: "Jaekaubandus", streakYears: 63 },
-  { symbol: "TGT", tvSymbol: "NYSE:TGT", name: "Target", sector: "Jaekaubandus", streakYears: 58 },
-  { symbol: "KMB", tvSymbol: "NASDAQ:KMB", name: "Kimberly-Clark", sector: "Tarbekaubad", streakYears: 54 },
-  { symbol: "SYY", tvSymbol: "NYSE:SYY", name: "Sysco", sector: "Tarbekaubad", streakYears: 56 },
-  { symbol: "HRL", tvSymbol: "NYSE:HRL", name: "Hormel Foods", sector: "Tarbekaubad", streakYears: 60 },
-  { symbol: "ADM", tvSymbol: "NYSE:ADM", name: "Archer-Daniels-Midland", sector: "Tarbekaubad", streakYears: 51 },
-  { symbol: "GPC", tvSymbol: "NYSE:GPC", name: "Genuine Parts", sector: "Tööstus", streakYears: 70 },
-  { symbol: "EMR", tvSymbol: "NYSE:EMR", name: "Emerson Electric", sector: "Tööstus", streakYears: 69 },
-  { symbol: "ITW", tvSymbol: "NYSE:ITW", name: "Illinois Tool Works", sector: "Tööstus", streakYears: 63 },
-  { symbol: "DOV", tvSymbol: "NYSE:DOV", name: "Dover", sector: "Tööstus", streakYears: 70 },
-  { symbol: "PH", tvSymbol: "NYSE:PH", name: "Parker-Hannifin", sector: "Tööstus", streakYears: 70 },
-  { symbol: "ADP", tvSymbol: "NASDAQ:ADP", name: "Automatic Data Processing", sector: "Tehnoloogia", streakYears: 51 },
-  { symbol: "SPGI", tvSymbol: "NYSE:SPGI", name: "S&P Global", sector: "Finants", streakYears: 53 },
-  { symbol: "CINF", tvSymbol: "NASDAQ:CINF", name: "Cincinnati Financial", sector: "Finants", streakYears: 65 },
-  { symbol: "ED", tvSymbol: "NYSE:ED", name: "Consolidated Edison", sector: "Kommunaal", streakYears: 52 },
-  { symbol: "FRT", tvSymbol: "NYSE:FRT", name: "Federal Realty", sector: "Kinnisvara", streakYears: 58 }
-];
+const DIVIDEND_KINGS_LIST = [];
 
 const DEFAULT_CUSTOM_STOCKS = [
   { symbol: "AAPL", tvSymbol: "NASDAQ:AAPL", name: "Apple", sector: "Tehnoloogia" },
@@ -48,8 +25,10 @@ const explorerState = {
   listMode: "kings", // "kings" | "custom"
   kingsFilter: "all", // "all" | "low" | "candidate"
   kingsSearch: "",
+  sortOrder: "default",
   customStocks: [],
   marketData: new Map(),
+  latestQuotes: new Map(),
   intradayData: new Map(),
   fallbackData: new Map(),
   lastPrices: new Map(),
@@ -59,13 +38,17 @@ const explorerState = {
   chartMode: "native",
   tvChartKey: "",
   workerApiUrl: "",
+  selectedRefreshes: new Map(),
+  stockRefreshes: new Map(),
+  historyAttempts: new Map(),
+  progress: null,
   loading: false
 };
 
 const number = new Intl.NumberFormat("et-EE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const decimal = new Intl.NumberFormat("et-EE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const dateFormat = new Intl.DateTimeFormat("et-EE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
-const timeFormat = new Intl.DateTimeFormat("et-EE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const dataTimeFormat = new Intl.DateTimeFormat("et-EE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const shortTimeFormat = new Intl.DateTimeFormat("et-EE", { hour: "2-digit", minute: "2-digit" });
 const byId = (id) => document.getElementById(id);
 
@@ -183,7 +166,60 @@ function loadSavedStocks() {
   return DEFAULT_CUSTOM_STOCKS.map((item) => ({ ...item }));
 }
 
+function saveView() {
+  const { listMode, selected, days, intraday, chartMode, sortOrder, kingsFilter, kingsSearch } = explorerState;
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ listMode, selected, days, intraday, chartMode, sortOrder, kingsFilter, kingsSearch }));
+  } catch {
+    // Navigation still works when storage is unavailable.
+  }
+}
+
+function restoreView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) || "{}");
+    if (["kings", "custom"].includes(saved.listMode)) explorerState.listMode = saved.listMode;
+    if (["native", "tradingview"].includes(saved.chartMode)) explorerState.chartMode = saved.chartMode;
+    if (SORT_ORDERS.includes(saved.sortOrder)) explorerState.sortOrder = saved.sortOrder;
+    if (["all", "low", "candidate"].includes(saved.kingsFilter)) explorerState.kingsFilter = saved.kingsFilter;
+    if (typeof saved.kingsSearch === "string") explorerState.kingsSearch = saved.kingsSearch.slice(0, 100);
+    if ([30, 90, 365].includes(saved.days) && !saved.intraday) explorerState.days = saved.days;
+    if ((saved.intraday === "1m" && saved.days === 1) || (saved.intraday === "5m" && saved.days === 5)) {
+      explorerState.days = saved.days;
+      explorerState.intraday = saved.intraday;
+    }
+    const selected = saved.selected || localStorage.getItem(CUSTOM_SELECTED_KEY);
+    if (selected) {
+      explorerState.selected = activeListItems().some((item) => item.symbol === selected)
+        ? selected : activeListItems()[0]?.symbol || "";
+    }
+  } catch {
+    // Invalid saved choices use the defaults.
+  }
+  if (!activeListItems().some((item) => item.symbol === explorerState.selected)) {
+    explorerState.selected = activeListItems()[0]?.symbol || "";
+  }
+}
+
+function updatePressedButtons(id, attribute, value) {
+  for (const button of byId(id).querySelectorAll("button")) {
+    const active = button.dataset[attribute] === String(value);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function syncViewControls() {
+  updatePressedButtons("list-mode-controls", "list", explorerState.listMode);
+  updatePressedButtons("chart-mode-controls", "mode", explorerState.chartMode);
+  updatePressedButtons("ranges", "days", explorerState.days);
+  updatePressedButtons("kings-filters", "filter", explorerState.kingsFilter);
+  byId("sort-stocks").value = explorerState.sortOrder;
+  byId("kings-search").value = explorerState.kingsSearch;
+}
+
 function saveStocks() {
+  saveView();
   try {
     localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(explorerState.customStocks));
     localStorage.setItem(CUSTOM_SELECTED_KEY, explorerState.selected);
@@ -192,11 +228,11 @@ function saveStocks() {
   }
 }
 
-function readSessionCache(cacheKey) {
+function readSessionCache(cacheKey, maxAge = CACHE_TTL_MS, minimumPoints = 16) {
   try {
     const all = JSON.parse(sessionStorage.getItem(CUSTOM_CACHE_KEY) || "{}");
     const entry = all[cacheKey];
-    if (entry && Date.now() - entry.savedAt < CACHE_TTL_MS && entry.data?.history?.length > 15) {
+    if (entry && Date.now() - entry.savedAt < maxAge && entry.data?.history?.length >= minimumPoints) {
       return entry.data;
     }
   } catch {
@@ -227,8 +263,8 @@ function showFeedback(message, isError = false) {
   notice.textContent = message;
 }
 
-function buildStockObject(requestedSymbol, customName, sourceLabel, rows, liveTimeIso) {
-  if (rows.length < 16) {
+function buildStockObject(requestedSymbol, customName, sourceLabel, rows, liveTimeIso, minimumPoints = 16) {
+  if (rows.length < minimumPoints) {
     throw new Error("Aktsial " + requestedSymbol + " on RSI jaoks liiga vähe punkte.");
   }
   const rsiValues = calculateRsi(rows.map((r) => r.close), 14);
@@ -243,13 +279,14 @@ function buildStockObject(requestedSymbol, customName, sourceLabel, rows, liveTi
     name: customName || kingMeta?.name || requestedSymbol,
     sector: kingMeta ? kingMeta.sector : sourceLabel,
     streak_years: kingMeta?.streakYears ?? null,
-    liveTime: liveTimeIso || new Date().toISOString(),
-    isRealtime: true,
+    liveTime: liveTimeIso || rows.at(-1).date,
+    sourceMode: "provider",
+    isRealtime: false,
     history
   };
 }
 
-function parseYahooChartResponse(text, requestedSymbol, customName, isIntraday = false) {
+function parseYahooChartResponse(text, requestedSymbol, customName, isIntraday = false, minimumPoints = 16) {
   const json = JSON.parse(text);
   const result = json?.chart?.result?.[0];
   if (!result || !Array.isArray(result.timestamp) || !result.indicators?.quote?.[0]) {
@@ -292,15 +329,15 @@ function parseYahooChartResponse(text, requestedSymbol, customName, isIntraday =
   const resolvedName = customName || meta.shortName || meta.longName || requestedSymbol;
   const liveTimeIso = Number.isFinite(meta.regularMarketTime)
     ? new Date(meta.regularMarketTime * 1000).toISOString()
-    : new Date().toISOString();
+    : rows.at(-1)?.date;
 
-  return buildStockObject(requestedSymbol, resolvedName, exchange, rows, liveTimeIso);
+  return buildStockObject(requestedSymbol, resolvedName, exchange, rows, liveTimeIso, minimumPoints);
 }
 
-function parseCnbcBarsResponse(text, requestedSymbol, customName, isIntraday = false) {
+function parseCnbcBarsResponse(text, requestedSymbol, customName, isIntraday = false, minimumPoints = 16) {
   const json = JSON.parse(text);
   const bars = json?.barData?.priceBars || json?.barData?.bars;
-  if (!Array.isArray(bars) || bars.length < 16) {
+  if (!Array.isArray(bars) || bars.length < minimumPoints) {
     throw new Error("CNBC hinnaajalugu puudub.");
   }
   const byKey = new Map();
@@ -324,7 +361,7 @@ function parseCnbcBarsResponse(text, requestedSymbol, customName, isIntraday = f
     byKey.set(key, { date: key, close: rounded, quote_close: rounded });
   }
   const rows = Array.from(byKey.values()).sort((a, b) => a.date.localeCompare(b.date));
-  return buildStockObject(requestedSymbol, customName || requestedSymbol, "USA börs", rows);
+  return buildStockObject(requestedSymbol, customName || requestedSymbol, "USA börs", rows, undefined, minimumPoints);
 }
 
 function formatCnbcTimestamp(dateObj) {
@@ -335,7 +372,7 @@ function formatCnbcTimestamp(dateObj) {
     + "235959";
 }
 
-async function fetchViaProvider(provider, symbol, customName, isIntraday) {
+async function fetchViaProvider(provider, symbol, customName, isIntraday, minimumPoints) {
   const response = await fetch(provider.url, {
     cache: "no-store",
     signal: AbortSignal.timeout(8500)
@@ -346,14 +383,15 @@ async function fetchViaProvider(provider, symbol, customName, isIntraday) {
     const wrapper = JSON.parse(rawText);
     rawText = wrapper.contents || "";
   }
-  return provider.parse(rawText, symbol, customName, isIntraday);
+  return provider.parse(rawText, symbol, customName, isIntraday, minimumPoints);
 }
 
-async function fetchYahooSymbol(symbol, customName, useCache = true, interval = "1d", range = "2y") {
+async function fetchYahooSymbol(symbol, customName, useCache = true, interval = "1d", range = "2y", minimumPoints = 16) {
   const isIntraday = interval !== "1d";
   const cacheKey = symbol + ":" + interval + ":" + range;
   if (useCache) {
-    const cached = readSessionCache(cacheKey);
+    const maxAge = interval === "1d" && range === "2y" ? HISTORY_REFRESH_MS : CACHE_TTL_MS;
+    const cached = readSessionCache(cacheKey, maxAge, minimumPoints);
     if (cached) {
       if (customName) cached.name = customName;
       return cached;
@@ -366,7 +404,7 @@ async function fetchYahooSymbol(symbol, customName, useCache = true, interval = 
     + "?interval=" + interval + "&range=" + range + "&includeAdjustedClose=true";
 
   const now = new Date();
-  const startDays = isIntraday ? (range === "1d" ? 4 : 7) : 735;
+  const startDays = isIntraday ? (range === "1d" ? 4 : 7) : range === "5d" ? 10 : 735;
   const startObj = new Date(now.getTime() - startDays * 86400000);
   const cnbcInterval = interval === "1m" ? "1M" : interval === "5m" ? "5M" : "1D";
   const cnbcUrl = "https://ts-api.cnbc.com/harmony/app/bars/"
@@ -408,19 +446,25 @@ async function fetchYahooSymbol(symbol, customName, useCache = true, interval = 
   );
 
   try {
-    const firstWave = providers.slice(0, 2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday));
+    const firstWave = providers.slice(0, 2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday, minimumPoints));
     const parsed = await Promise.any(firstWave);
+    parsed.fetchedAt = Date.now();
     writeSessionCache(cacheKey, parsed);
     return parsed;
   } catch {
     try {
-      const secondWave = providers.slice(2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday));
+      const secondWave = providers.slice(2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday, minimumPoints));
       const parsed = await Promise.any(secondWave);
+      parsed.fetchedAt = Date.now();
       writeSessionCache(cacheKey, parsed);
       return parsed;
     } catch {
-      if (!isIntraday && explorerState.fallbackData.has(symbol)) {
-        const fallback = structuredClone(explorerState.fallbackData.get(symbol));
+      const currentStock = explorerState.marketData.get(symbol);
+      const availableStock = currentStock?.history?.length ? currentStock : explorerState.fallbackData.get(symbol);
+      if (!isIntraday && availableStock) {
+        // A failed refresh must not replace newer in-memory prices with an older file.
+        const fallback = structuredClone(availableStock);
+        fallback.refreshFailed = true;
         if (customName) fallback.name = customName;
         return fallback;
       }
@@ -464,7 +508,9 @@ async function initConfigAndFallback() {
             const enriched = {
               ...stock,
               streak_years: stock.streak_years ?? kingMeta?.streakYears ?? null,
-              isRealtime: file === "data/kings.json" && snap.mode === "live"
+              sourceMode: snap.mode === "demo" ? "demo" : "snapshot",
+              liveTime: stock.history?.at(-1)?.date,
+              isRealtime: false
             };
             explorerState.fallbackData.set(stock.symbol, enriched);
             if (!explorerState.marketData.has(stock.symbol)) {
@@ -479,10 +525,41 @@ async function initConfigAndFallback() {
   }
 }
 
+async function loadKingsList() {
+  const response = await fetch("data/dividend-kings.json", { cache: "no-store" });
+  if (!response.ok) throw new Error("Ettevõtete nimekirja laadimine ebaõnnestus. Uuenda lehte.");
+  const companies = await response.json();
+  if (!Array.isArray(companies) || companies.length === 0 || companies.some((company) =>
+    !company || typeof company.symbol !== "string" || typeof company.name !== "string"
+    || typeof company.sector !== "string" || typeof company.tvSymbol !== "string"
+    || !Number.isInteger(company.streakYears) || company.streakYears < 50)
+    || new Set(companies.map((company) => company.symbol)).size !== companies.length) {
+    throw new Error("Ettevõtete nimekiri on vigane.");
+  }
+  DIVIDEND_KINGS_LIST.splice(0, DIVIDEND_KINGS_LIST.length, ...companies);
+}
+
+async function initializeExplorer() {
+  await loadKingsList();
+  restoreView();
+  syncViewControls();
+  await initConfigAndFallback();
+  await refreshAllLiveStocks(true);
+}
+
+function showInitializationError(error) {
+  const notice = byId("live-notice");
+  notice.className = "notice error";
+  notice.textContent = error.message || "Andmete laadimine ebaõnnestus. Uuenda lehte.";
+}
+
 function updateListModeUI() {
+  syncViewControls();
   const isKings = explorerState.listMode === "kings";
   byId("list-eyebrow").textContent = isKings ? "50+ AASTAT DIVIDENDI KASVU" : "KOHANDATAV JÄLGIMISNIMEKIRI";
-  byId("list-heading").textContent = isKings ? "USA Dividend Kings (25)" : "Sinu vabalt valitud aktsiad";
+  byId("list-heading").textContent = isKings ? "USA Dividend Kings (" + DIVIDEND_KINGS_LIST.length + ")" : "Sinu vabalt valitud aktsiad";
+  const kingsButton = byId("list-mode-controls").querySelector('[data-list="kings"]');
+  if (kingsButton) kingsButton.textContent = "Dividend Kings (" + DIVIDEND_KINGS_LIST.length + ")";
   byId("list-caption").textContent = isKings
     ? "Ettevõtted, mis on suurendanud dividendi vähemalt 50 aastat järjest. Klõpsa aktsial graafiku ja RSI detailide vaatamiseks."
     : "Sisesta mis tahes USA aktsia sümbol (nt AAPL, NVDA, MSFT, TSLA). Valikud salvestuvad sellesse brauserisse.";
@@ -502,6 +579,12 @@ function updateListModeUI() {
   }
 }
 
+function dataSourceLabel(stock) {
+  if (stock.sourceMode === "demo") return "Näidisandmed";
+  if (stock.sourceMode === "snapshot") return "Salvestatud andmed";
+  return "Teenusest laaditud · võimalik viivitus";
+}
+
 function renderOverview() {
   const list = activeListItems();
   const loadedStocks = list
@@ -513,25 +596,29 @@ function renderOverview() {
     byId("custom-low-count").textContent = "—";
     byId("custom-recovery-count").textContent = "—";
     byId("custom-data-date").textContent = "—";
+    byId("custom-updated-at").textContent = "Andmed puuduvad";
     return;
   }
 
-  byId("custom-low-count").textContent = loadedStocks.filter((stock) => stock.history.at(-1).rsi < 40).length;
+  byId("custom-low-count").textContent = loadedStocks.filter((stock) => Number.isFinite(stock.history.at(-1).rsi) && stock.history.at(-1).rsi < 40).length;
   byId("custom-recovery-count").textContent = loadedStocks.filter((stock) => analyzeStock(stock).label === "Võimalik ostukandidaat").length;
 
   const dates = loadedStocks.map((stock) => stock.history.at(-1).date.slice(0, 10)).sort();
   byId("custom-data-date").textContent = dateFormat.format(new Date(dates.at(-1)));
-  const anyLive = loadedStocks.some((stock) => stock.isRealtime);
-  const nowStr = timeFormat.format(new Date());
-  byId("custom-updated-at").textContent = anyLive
-    ? "Uuendatud kell " + nowStr + " · reaalajas"
-    : "Uuendatud kell " + nowStr;
+  const dataTimes = loadedStocks.map((stock) => stock.liveTime || stock.history.at(-1).date)
+    .filter((value) => Number.isFinite(Date.parse(value)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  const oldestTime = dataTimes[0];
+  const sourceLabels = [...new Set(loadedStocks.map(dataSourceLabel))];
+  byId("custom-updated-at").textContent = (oldestTime
+    ? "Vanim andmeaeg " + (oldestTime.includes("T") ? dataTimeFormat : dateFormat).format(new Date(oldestTime))
+    : "Andmeaeg teadmata") + " · " + sourceLabels.join(" / ");
 
   const notice = byId("live-notice");
   notice.className = "notice live";
   notice.textContent = explorerState.listMode === "kings"
-    ? "DIVIDEND KINGS (50+ AASTAT) · Tabelis on 25 USA ettevõtet, mis on kasvatanud dividendi vähemalt 50 aastat järjest, koos viimase hinna ja RSI (14) signaalidega."
-    : "MINU VABA VALIK · Lisa mis tahes USA börsisümbol ning vaata reaalajas hinda, RSI (14) ja TradingView graafikut.";
+    ? "DIVIDEND KINGS (50+ AASTAT) · Nimekirjas on " + DIVIDEND_KINGS_LIST.length + " USA ettevõtet koos viimase hinna ja RSI (14) signaalidega."
+    : "MINU VABA VALIK · Lisa mis tahes USA börsisümbol ning vaata viimast saadaolevat hinda, RSI (14) ja TradingView graafikut.";
 }
 
 function filteredListItems() {
@@ -557,12 +644,42 @@ function filteredListItems() {
   });
 }
 
+function quoteSummary(symbol) {
+  const stock = explorerState.latestQuotes.get(symbol) || explorerState.marketData.get(symbol);
+  const latest = stock?.history?.at(-1);
+  const previous = stock?.history?.at(-2);
+  const price = latest?.quote_close ?? latest?.close;
+  const previousPrice = previous?.quote_close ?? previous?.close;
+  const change = Number.isFinite(price) && previousPrice > 0 ? (price / previousPrice - 1) * 100 : null;
+  return { price, change, time: stock?.liveTime || latest?.date, source: stock };
+}
+
+function sortedListItems() {
+  const items = filteredListItems();
+  if (explorerState.sortOrder === "default") return items;
+  const values = new Map(items.map((item) => {
+    const stock = explorerState.marketData.get(item.symbol);
+    let value = stock?.history?.at(-1)?.rsi;
+    if (explorerState.sortOrder.startsWith("change")) value = quoteSummary(item.symbol).change;
+    if (explorerState.sortOrder === "candidate") value = stock?.history?.length ? Number(analyzeStock(stock).candidate) : null;
+    return [item.symbol, value];
+  }));
+  const direction = explorerState.sortOrder.endsWith("asc") ? 1 : -1;
+  return [...items].sort((first, second) => {
+    const firstValue = values.get(first.symbol);
+    const secondValue = values.get(second.symbol);
+    if (!Number.isFinite(firstValue)) return Number.isFinite(secondValue) ? 1 : 0;
+    if (!Number.isFinite(secondValue)) return -1;
+    return (firstValue - secondValue) * direction;
+  });
+}
+
 function renderCustomList() {
   updateListModeUI();
   const tbody = byId("custom-stock-list");
   tbody.replaceChildren();
   const isKings = explorerState.listMode === "kings";
-  const items = filteredListItems();
+  const items = sortedListItems();
 
   if (items.length === 0) {
     const emptyRow = element("tr");
@@ -609,23 +726,23 @@ function renderCustomList() {
 
     if (stock && stock.history?.length >= 2) {
       const latest = stock.history.at(-1);
-      const previous = stock.history.at(-2);
-      const change = (latest.close / previous.close - 1) * 100;
+      const { price, change, time } = quoteSummary(item.symbol);
       const signal = signalFor(latest.rsi);
       const analysis = analyzeStock(stock);
 
       const prevSeenPrice = explorerState.lastPrices.get(item.symbol);
       let flashClass = "";
-      if (prevSeenPrice !== undefined && prevSeenPrice !== latest.close) {
-        flashClass = latest.close > prevSeenPrice ? " tick-up" : " tick-down";
+      if (prevSeenPrice !== undefined && prevSeenPrice !== price) {
+        flashClass = price > prevSeenPrice ? " tick-up" : " tick-down";
       }
-      explorerState.lastPrices.set(item.symbol, latest.close);
+      explorerState.lastPrices.set(item.symbol, price);
 
       const priceCell = element("td", "price-cell" + flashClass);
       priceCell.append(
-        element("strong", "", "$" + number.format(latest.close)),
-        element("small", change >= 0 ? "positive" : "negative", (change >= 0 ? "+" : "") + number.format(change) + "%")
+        element("strong", "", "$" + number.format(price)),
+        element("small", change > 0 ? "positive" : change < 0 ? "negative" : "", change === null ? "—" : (change >= 0 ? "+" : "") + number.format(change) + "%")
       );
+      priceCell.title = time ? "Hinna aeg: " + (time.includes("T") ? dataTimeFormat : dateFormat).format(new Date(time)) : "Andmeaeg teadmata";
 
       const rsiCell = element("td", "rsi-number" + (signal.kind === "low" ? " positive" : ""), latest.rsi !== null ? decimal.format(latest.rsi) : "—");
       rsiCell.append(element("small", "rsi-status", signal.label));
@@ -819,14 +936,25 @@ function renderTradingViewWidget(item, force = false) {
   wrapper.append(script);
 }
 
+function clearDetailData() {
+  for (const id of ["detail-price", "detail-rsi", "price-trend", "rsi-trend", "average-position",
+    "average-50", "average-200", "assessment-title", "rsi-range"]) {
+    byId(id).textContent = "—";
+  }
+  byId("signal-description").textContent = "Selle aktsia analüüsiks pole veel andmeid.";
+  byId("latest-quote").textContent = "";
+  for (const id of ["price-chart", "rsi-chart", "history-list"]) {
+    byId(id).replaceChildren();
+  }
+}
+
 function renderDetail() {
   const item = findItemBySymbol(explorerState.selected) || activeListItems()[0];
   if (!item) return;
   const dailyStock = explorerState.marketData.get(item.symbol);
-  const isIntraday = Boolean(explorerState.intraday);
-  const activeStock = isIntraday
-    ? (explorerState.intradayData.get(item.symbol + ":" + explorerState.intraday) || dailyStock)
-    : dailyStock;
+  const intradayStock = explorerState.intradayData.get(item.symbol + ":" + explorerState.intraday);
+  const isIntraday = Boolean(explorerState.intraday && intradayStock?.history?.length);
+  const activeStock = isIntraday ? intradayStock : dailyStock;
 
   const hasHistory = Boolean(activeStock && activeStock.history && activeStock.history.length >= 2);
   // If native history is not yet available for an uncached stock, automatically show TradingView so the chart is never blank!
@@ -842,8 +970,9 @@ function renderDetail() {
 
   const streakSuffix = item.streakYears ? " · Dividendi kasv " + item.streakYears + " a järjest" : "";
   if (!hasHistory) {
+    clearDetailData();
     byId("explorer-title").textContent = (item.name || item.symbol) + " · " + item.symbol;
-    byId("explorer-subtitle").textContent = (item.sector || "USA börs") + streakSuffix + " · Reaalajas TradingView graafik";
+    byId("explorer-subtitle").textContent = (item.sector || "USA börs") + streakSuffix + " · TradingView graafik; analüüsiandmed puuduvad";
     return;
   }
 
@@ -872,20 +1001,32 @@ function renderDetail() {
   }
 
   byId("explorer-title").textContent = (item.name || activeStock.name) + " · " + activeStock.symbol;
-  byId("explorer-subtitle").textContent = (item.sector || activeStock.sector) + streakSuffix + " · Viimane kuupäev " + formatPointLabel(latest.date, isIntraday);
+  byId("explorer-subtitle").textContent = (item.sector || activeStock.sector) + streakSuffix
+    + " · Viimane kuupäev " + formatPointLabel(latest.date, isIntraday) + " · " + dataSourceLabel(activeStock)
+    + (explorerState.intraday && !isIntraday ? " · Päevasisesed andmed puuduvad; kuvatakse päevaandmed" : "");
   byId("detail-price").textContent = "$" + number.format(latest.close);
   byId("detail-rsi").textContent = latest.rsi !== null ? decimal.format(latest.rsi) : "—";
+  const quote = quoteSummary(item.symbol);
+  byId("latest-quote").textContent = Number.isFinite(quote.price)
+    ? "Viimane noteering $" + number.format(quote.price) + " · "
+      + (quote.time?.includes("T") ? dataTimeFormat : dateFormat).format(new Date(quote.time))
+      + " · " + dataSourceLabel(quote.source)
+    : "Noteering puudub";
 
-  const baseForAnalysis = dailyStock?.history?.length >= 21 ? dailyStock : activeStock;
+  // Five trading days and daily averages must never use minute bars.
+  const baseForAnalysis = dailyStock?.history?.length ? dailyStock : { history: [] };
   const analysis = analyzeStock(baseForAnalysis);
   byId("assessment-title").textContent = analysis.label;
   byId("signal-description").textContent = analysis.description;
   byId("price-trend").textContent = directionText(analysis.priceChange, "%");
   byId("rsi-trend").textContent = directionText(analysis.rsiChange, " punkti");
 
-  const posText = (avg) => avg === null
-    ? "Andmeid vähe"
-    : (latest.close > avg ? "Üle keskmise" : latest.close < avg ? "Alla keskmise" : "Keskmisega võrdne") + " · $" + number.format(avg);
+  const dailyPrice = dailyStock?.history?.at(-1)?.close;
+  const posText = (avg) => {
+    if (avg === null) return "Andmeid vähe";
+    const position = dailyPrice > avg ? "Üle keskmise" : dailyPrice < avg ? "Alla keskmise" : "Keskmisega võrdne";
+    return position + " · $" + number.format(avg);
+  };
 
   byId("average-position").textContent = posText(analysis.average);
   byId("average-50").textContent = posText(analysis.average50);
@@ -920,40 +1061,102 @@ function renderDetail() {
   }
 }
 
-async function refreshSelectedAndRender(useCache = false) {
-  const item = findItemBySymbol(explorerState.selected) || activeListItems()[0];
-  if (!item) return;
+async function loadStockData(item, useCache) {
+  const current = explorerState.marketData.get(item.symbol);
+  const historyCheckedAt = Math.max(current?.fetchedAt || 0, explorerState.historyAttempts.get(item.symbol) || 0);
+  const historyIsFresh = current?.history?.length && Number.isFinite(historyCheckedAt)
+    && Date.now() - historyCheckedAt < HISTORY_REFRESH_MS;
+  const customName = item.name && item.name !== item.symbol ? item.name : "";
+  if (!useCache || !historyIsFresh) {
+    explorerState.historyAttempts.set(item.symbol, Date.now());
+    const data = await fetchYahooSymbol(item.symbol, customName, useCache, "1d", "2y");
+    if (!data.refreshFailed) explorerState.historyAttempts.delete(item.symbol);
+    const updated = { ...data, fetchedAt: data.fetchedAt || (data.refreshFailed ? undefined : Date.now()) };
+    explorerState.marketData.set(item.symbol, updated);
+    if (!data.refreshFailed) explorerState.latestQuotes.set(item.symbol, updated);
+    return !data.refreshFailed;
+  }
+  // Only a few daily bars are needed for the current quote and its daily change.
+  const quote = await fetchYahooSymbol(item.symbol, customName, useCache, "1d", "5d", 1);
+  if (!quote.refreshFailed) explorerState.latestQuotes.set(item.symbol, quote);
+  return !quote.refreshFailed;
+}
 
-  if (!explorerState.marketData.get(item.symbol)?.history) {
+async function refreshStockData(item, useCache) {
+  const active = explorerState.stockRefreshes.get(item.symbol);
+  if (active) {
+    if (useCache || !active.useCache) return active.pending;
+    await active.pending;
+    return refreshStockData(item, false);
+  }
+  const pending = loadStockData(item, useCache);
+  explorerState.stockRefreshes.set(item.symbol, { pending, useCache });
+  try {
+    return await pending;
+  } finally {
+    explorerState.stockRefreshes.delete(item.symbol);
+  }
+}
+
+async function refreshSelectedStock(item, interval, useCache) {
+  let succeeded = false;
+  try {
+    succeeded = await refreshStockData(item, useCache);
+  } catch {
+    // Preserve the last known history while its provider is unavailable.
+  }
+  if (interval) {
+    const range = interval === "1m" ? "1d" : "5d";
     try {
       const customName = item.name && item.name !== item.symbol ? item.name : "";
-      const daily = await fetchYahooSymbol(item.symbol, customName, useCache, "1d", "2y");
-      explorerState.marketData.set(item.symbol, daily);
+      const intraday = await fetchYahooSymbol(item.symbol, customName, useCache, interval, range);
+      explorerState.intradayData.set(item.symbol + ":" + interval, intraday);
     } catch {
-      // If live fetch fails, renderDetail will seamlessly display TradingView for this symbol.
+      succeeded = false;
     }
   }
-
-  if (explorerState.intraday) {
-    const range = explorerState.intraday === "1m" ? "1d" : "5d";
-    try {
-      const customName = item.name && item.name !== item.symbol ? item.name : "";
-      const intraday = await fetchYahooSymbol(item.symbol, customName, useCache, explorerState.intraday, range);
-      explorerState.intradayData.set(item.symbol + ":" + explorerState.intraday, intraday);
-      const daily = explorerState.marketData.get(item.symbol);
-      if (daily?.history?.length && intraday.history?.length) {
-        daily.history.at(-1).close = intraday.history.at(-1).close;
-        daily.liveTime = intraday.liveTime;
-        daily.isRealtime = true;
-      }
-    } catch {
-      // Keep daily series if intraday is unavailable.
-    }
-  }
-
   renderOverview();
   renderCustomList();
   renderDetail();
+  return succeeded;
+}
+
+async function refreshSelectedAndRender(useCache = false) {
+  const item = findItemBySymbol(explorerState.selected) || activeListItems()[0];
+  if (!item) return;
+  const interval = explorerState.intraday;
+  const refreshKey = item.symbol + ":" + interval;
+  renderDetail();
+  const active = explorerState.selectedRefreshes.get(refreshKey);
+  if (active) {
+    if (useCache || !active.useCache) return active.pending;
+    await active.pending;
+    return refreshSelectedAndRender(false);
+  }
+  const pending = refreshSelectedStock(item, interval, useCache);
+  explorerState.selectedRefreshes.set(refreshKey, { pending, useCache });
+  try {
+    return await pending;
+  } finally {
+    explorerState.selectedRefreshes.delete(refreshKey);
+  }
+}
+
+function renderRefreshProgress() {
+  const progress = explorerState.progress;
+  const notice = byId("refresh-progress");
+  notice.hidden = !progress;
+  if (!progress) return;
+  notice.textContent = progress.label + " · Kontrollitud " + progress.completed + "/" + progress.total
+    + " · Ebaõnnestus " + progress.failed.length
+    + (progress.failed.length ? " (" + progress.failed.join(", ") + ")" : "")
+    + (explorerState.loading ? " · Värskendan…" : " · Valmis");
+}
+
+function recordRefreshResult(symbol, succeeded) {
+  explorerState.progress.completed++;
+  if (!succeeded) explorerState.progress.failed.push(symbol);
+  renderRefreshProgress();
 }
 
 async function refreshAllLiveStocks(useCache = false) {
@@ -961,32 +1164,34 @@ async function refreshAllLiveStocks(useCache = false) {
   explorerState.loading = true;
   const refreshBtn = byId("refresh-live");
   refreshBtn.disabled = true;
+  const list = [...activeListItems()];
+  explorerState.progress = {
+    label: explorerState.listMode === "kings" ? "Dividend Kings" : "Minu vaba valik",
+    completed: 0, total: list.length, failed: []
+  };
+  renderRefreshProgress();
 
   renderOverview();
   renderCustomList();
   renderDetail();
 
   try {
-    await refreshSelectedAndRender(useCache);
+    const selectedSymbol = explorerState.selected;
+    const succeeded = await refreshSelectedAndRender(useCache);
+    if (list.some((item) => item.symbol === selectedSymbol)) recordRefreshResult(selectedSymbol, succeeded);
 
-    const list = activeListItems();
-    const ordered = [
-      ...list.filter((s) => s.symbol === explorerState.selected),
-      ...list.filter((s) => s.symbol !== explorerState.selected)
-    ];
+    const ordered = list.filter((item) => item.symbol !== selectedSymbol);
 
     for (const item of ordered) {
-      if (useCache && explorerState.marketData.get(item.symbol)?.history?.length > 20) {
-        continue;
-      }
       try {
-        const customName = item.name && item.name !== item.symbol ? item.name : "";
-        const data = await fetchYahooSymbol(item.symbol, customName, useCache, "1d", "2y");
+        const succeeded = await refreshStockData(item, useCache);
+        const data = explorerState.marketData.get(item.symbol);
         if (!item.name || item.name === item.symbol) {
           item.name = data.name;
         }
-        explorerState.marketData.set(item.symbol, data);
+        recordRefreshResult(item.symbol, succeeded);
       } catch (error) {
+        recordRefreshResult(item.symbol, false);
         if (!explorerState.marketData.get(item.symbol)?.history) {
           explorerState.marketData.set(item.symbol, {
             symbol: item.symbol,
@@ -1006,6 +1211,7 @@ async function refreshAllLiveStocks(useCache = false) {
   } finally {
     explorerState.loading = false;
     refreshBtn.disabled = false;
+    renderRefreshProgress();
   }
 }
 
@@ -1128,13 +1334,22 @@ byId("list-mode-controls").addEventListener("click", (event) => {
   if (!currentList.some((s) => s.symbol === explorerState.selected)) {
     explorerState.selected = currentList[0].symbol;
   }
-  refreshAllLiveStocks(true);
+  saveView();
+  renderOverview();
+  renderCustomList();
+  renderDetail();
+  if (explorerState.loading) {
+    refreshSelectedAndRender(true);
+  } else {
+    refreshAllLiveStocks(true);
+  }
 });
 
 byId("kings-filters").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-filter]");
   if (!button) return;
   explorerState.kingsFilter = button.dataset.filter;
+  saveView();
   for (const item of byId("kings-filters").querySelectorAll("button")) {
     const active = item === button;
     item.classList.toggle("active", active);
@@ -1145,6 +1360,14 @@ byId("kings-filters").addEventListener("click", (event) => {
 
 byId("kings-search").addEventListener("input", (event) => {
   explorerState.kingsSearch = event.target.value;
+  saveView();
+  renderCustomList();
+});
+
+byId("sort-stocks").addEventListener("change", (event) => {
+  if (!SORT_ORDERS.includes(event.target.value)) return;
+  explorerState.sortOrder = event.target.value;
+  saveView();
   renderCustomList();
 });
 
@@ -1153,6 +1376,7 @@ byId("ranges").addEventListener("click", (event) => {
   if (!button) return;
   explorerState.days = Number(button.dataset.days);
   explorerState.intraday = button.dataset.intraday || "";
+  saveView();
   for (const item of byId("ranges").querySelectorAll("button")) {
     const active = item === button;
     item.classList.toggle("active", active);
@@ -1165,6 +1389,7 @@ byId("chart-mode-controls").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-mode]");
   if (!button) return;
   explorerState.chartMode = button.dataset.mode;
+  saveView();
   for (const item of byId("chart-mode-controls").querySelectorAll("button")) {
     const active = item === button;
     item.classList.toggle("active", active);
@@ -1174,9 +1399,9 @@ byId("chart-mode-controls").addEventListener("click", (event) => {
 });
 
 setInterval(() => {
-  if (document.visibilityState === "visible" && !explorerState.loading) {
-    refreshSelectedAndRender(false);
+  if (document.visibilityState === "visible") {
+    refreshSelectedAndRender(true);
   }
 }, 15000);
 
-initConfigAndFallback().then(() => refreshAllLiveStocks(true));
+initializeExplorer().catch(showInitializationError);

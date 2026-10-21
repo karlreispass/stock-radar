@@ -38,6 +38,7 @@ jobs:
       - run: node --check profiles.js
       - run: node --test tests/profiles.test.cjs
       - run: node --test tests/analysis.test.cjs
+      - run: node --test tests/explorer.test.cjs
       - run: node --check app.js
       - run: node --check tradingview.js
       - run: node --check explorer.js
@@ -49,7 +50,7 @@ jobs:
         run: |
           mkdir -p site/data
           cp index.html tradingview.html explorer.html styles.css app.js tradingview.js explorer.js analysis.js research.js profiles.js settings.json profile-config.json site/
-          cp data/stocks.json data/kings.json site/data/
+          cp data/stocks.json data/kings.json data/dividend-kings.json site/data/
       - name: Set public profile service address
         run: python scripts/write_profile_config.py --output site/profile-config.json
         env:

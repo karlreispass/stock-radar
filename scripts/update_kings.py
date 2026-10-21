@@ -18,33 +18,7 @@ else:
 ROOT = Path(__file__).resolve().parents[1]
 
 # US Dividend Kings: companies with 50+ consecutive years of dividend increases.
-DIVIDEND_KINGS = [
-    ("KO", "Coca-Cola", "Tarbekaubad", 64, "NYSE:KO"),
-    ("PEP", "PepsiCo", "Tarbekaubad", 54, "NASDAQ:PEP"),
-    ("JNJ", "Johnson & Johnson", "Tervishoid", 64, "NYSE:JNJ"),
-    ("PG", "Procter & Gamble", "Tarbekaubad", 70, "NYSE:PG"),
-    ("CL", "Colgate-Palmolive", "Tarbekaubad", 63, "NYSE:CL"),
-    ("ABBV", "AbbVie", "Tervishoid", 54, "NYSE:ABBV"),
-    ("ABT", "Abbott Laboratories", "Tervishoid", 54, "NYSE:ABT"),
-    ("MCD", "McDonald's", "Tarbijateenused", 50, "NYSE:MCD"),
-    ("WMT", "Walmart", "Jaekaubandus", 53, "NYSE:WMT"),
-    ("LOW", "Lowe's", "Jaekaubandus", 63, "NYSE:LOW"),
-    ("TGT", "Target", "Jaekaubandus", 58, "NYSE:TGT"),
-    ("KMB", "Kimberly-Clark", "Tarbekaubad", 54, "NASDAQ:KMB"),
-    ("SYY", "Sysco", "Tarbekaubad", 56, "NYSE:SYY"),
-    ("HRL", "Hormel Foods", "Tarbekaubad", 60, "NYSE:HRL"),
-    ("ADM", "Archer-Daniels-Midland", "Tarbekaubad", 51, "NYSE:ADM"),
-    ("GPC", "Genuine Parts", "Tööstus", 70, "NYSE:GPC"),
-    ("EMR", "Emerson Electric", "Tööstus", 69, "NYSE:EMR"),
-    ("ITW", "Illinois Tool Works", "Tööstus", 63, "NYSE:ITW"),
-    ("DOV", "Dover", "Tööstus", 70, "NYSE:DOV"),
-    ("PH", "Parker-Hannifin", "Tööstus", 70, "NYSE:PH"),
-    ("ADP", "Automatic Data Processing", "Tehnoloogia", 51, "NASDAQ:ADP"),
-    ("SPGI", "S&P Global", "Finants", 53, "NYSE:SPGI"),
-    ("CINF", "Cincinnati Financial", "Finants", 65, "NASDAQ:CINF"),
-    ("ED", "Consolidated Edison", "Kommunaal", 52, "NYSE:ED"),
-    ("FRT", "Federal Realty", "Kinnisvara", 58, "NYSE:FRT"),
-]
+DIVIDEND_KINGS = json.loads((ROOT / "data" / "dividend-kings.json").read_text(encoding="utf-8"))
 
 
 def download_king_history(symbol):
@@ -107,14 +81,15 @@ def demo_king_history(index, cutoff):
 def build_kings_payload(demo=False):
     cutoff = date.today()
     stocks = []
-    for index, (symbol, name, sector, streak_years, tv_symbol) in enumerate(DIVIDEND_KINGS):
+    for index, company in enumerate(DIVIDEND_KINGS):
+        symbol = company["symbol"]
         history = demo_king_history(index, cutoff) if demo else download_king_history(symbol)
         stocks.append({
             "symbol": symbol,
-            "tv_symbol": tv_symbol,
-            "name": name,
-            "sector": sector,
-            "streak_years": streak_years,
+            "tv_symbol": company["tvSymbol"],
+            "name": company["name"],
+            "sector": company["sector"],
+            "streak_years": company["streakYears"],
             "history": history,
         })
         print(f"{symbol}: {len(history)} days through {history[-1]['date']}")

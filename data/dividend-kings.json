@@ -1,0 +1,177 @@
+[
+  {
+    "symbol": "KO",
+    "name": "Coca-Cola",
+    "sector": "Tarbekaubad",
+    "streakYears": 64,
+    "tvSymbol": "NYSE:KO"
+  },
+  {
+    "symbol": "PEP",
+    "name": "PepsiCo",
+    "sector": "Tarbekaubad",
+    "streakYears": 54,
+    "tvSymbol": "NASDAQ:PEP"
+  },
+  {
+    "symbol": "JNJ",
+    "name": "Johnson & Johnson",
+    "sector": "Tervishoid",
+    "streakYears": 64,
+    "tvSymbol": "NYSE:JNJ"
+  },
+  {
+    "symbol": "PG",
+    "name": "Procter & Gamble",
+    "sector": "Tarbekaubad",
+    "streakYears": 70,
+    "tvSymbol": "NYSE:PG"
+  },
+  {
+    "symbol": "CL",
+    "name": "Colgate-Palmolive",
+    "sector": "Tarbekaubad",
+    "streakYears": 63,
+    "tvSymbol": "NYSE:CL"
+  },
+  {
+    "symbol": "ABBV",
+    "name": "AbbVie",
+    "sector": "Tervishoid",
+    "streakYears": 54,
+    "tvSymbol": "NYSE:ABBV"
+  },
+  {
+    "symbol": "ABT",
+    "name": "Abbott Laboratories",
+    "sector": "Tervishoid",
+    "streakYears": 54,
+    "tvSymbol": "NYSE:ABT"
+  },
+  {
+    "symbol": "MCD",
+    "name": "McDonald's",
+    "sector": "Tarbijateenused",
+    "streakYears": 50,
+    "tvSymbol": "NYSE:MCD"
+  },
+  {
+    "symbol": "WMT",
+    "name": "Walmart",
+    "sector": "Jaekaubandus",
+    "streakYears": 53,
+    "tvSymbol": "NYSE:WMT"
+  },
+  {
+    "symbol": "LOW",
+    "name": "Lowe's",
+    "sector": "Jaekaubandus",
+    "streakYears": 63,
+    "tvSymbol": "NYSE:LOW"
+  },
+  {
+    "symbol": "TGT",
+    "name": "Target",
+    "sector": "Jaekaubandus",
+    "streakYears": 58,
+    "tvSymbol": "NYSE:TGT"
+  },
+  {
+    "symbol": "KMB",
+    "name": "Kimberly-Clark",
+    "sector": "Tarbekaubad",
+    "streakYears": 54,
+    "tvSymbol": "NASDAQ:KMB"
+  },
+  {
+    "symbol": "SYY",
+    "name": "Sysco",
+    "sector": "Tarbekaubad",
+    "streakYears": 56,
+    "tvSymbol": "NYSE:SYY"
+  },
+  {
+    "symbol": "HRL",
+    "name": "Hormel Foods",
+    "sector": "Tarbekaubad",
+    "streakYears": 60,
+    "tvSymbol": "NYSE:HRL"
+  },
+  {
+    "symbol": "ADM",
+    "name": "Archer-Daniels-Midland",
+    "sector": "Tarbekaubad",
+    "streakYears": 51,
+    "tvSymbol": "NYSE:ADM"
+  },
+  {
+    "symbol": "GPC",
+    "name": "Genuine Parts",
+    "sector": "Tööstus",
+    "streakYears": 70,
+    "tvSymbol": "NYSE:GPC"
+  },
+  {
+    "symbol": "EMR",
+    "name": "Emerson Electric",
+    "sector": "Tööstus",
+    "streakYears": 69,
+    "tvSymbol": "NYSE:EMR"
+  },
+  {
+    "symbol": "ITW",
+    "name": "Illinois Tool Works",
+    "sector": "Tööstus",
+    "streakYears": 63,
+    "tvSymbol": "NYSE:ITW"
+  },
+  {
+    "symbol": "DOV",
+    "name": "Dover",
+    "sector": "Tööstus",
+    "streakYears": 70,
+    "tvSymbol": "NYSE:DOV"
+  },
+  {
+    "symbol": "PH",
+    "name": "Parker-Hannifin",
+    "sector": "Tööstus",
+    "streakYears": 70,
+    "tvSymbol": "NYSE:PH"
+  },
+  {
+    "symbol": "ADP",
+    "name": "Automatic Data Processing",
+    "sector": "Tehnoloogia",
+    "streakYears": 51,
+    "tvSymbol": "NASDAQ:ADP"
+  },
+  {
+    "symbol": "SPGI",
+    "name": "S&P Global",
+    "sector": "Finants",
+    "streakYears": 53,
+    "tvSymbol": "NYSE:SPGI"
+  },
+  {
+    "symbol": "CINF",
+    "name": "Cincinnati Financial",
+    "sector": "Finants",
+    "streakYears": 65,
+    "tvSymbol": "NASDAQ:CINF"
+  },
+  {
+    "symbol": "ED",
+    "name": "Consolidated Edison",
+    "sector": "Kommunaal",
+    "streakYears": 52,
+    "tvSymbol": "NYSE:ED"
+  },
+  {
+    "symbol": "FRT",
+    "name": "Federal Realty",
+    "sector": "Kinnisvara",
+    "streakYears": 58,
+    "tvSymbol": "NYSE:FRT"
+  }
+]

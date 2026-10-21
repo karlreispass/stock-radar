@@ -27,6 +27,7 @@ jobs:
       - run: node --check profiles.js
       - run: node --test tests/profiles.test.cjs
       - run: node --test tests/analysis.test.cjs
+      - run: node --test tests/explorer.test.cjs
       - run: node --check app.js
       - run: node --check tradingview.js
       - run: node --check explorer.js

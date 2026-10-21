@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101817">
-  <meta name="description" content="USA Dividend Kings (50+ aastat dividendi kasvu) ja vabalt valitavad aktsiad koos reaalajas hinna ja RSI-ga.">
+  <meta name="description" content="USA Dividend Kings (50+ aastat dividendi kasvu) ja vabalt valitavad aktsiad koos viimase saadaoleva hinna ja RSI-ga.">
   <title>Stock Radar · Dividend Kings &amp; Vaba valik</title>
   <script>
     // Apply the saved choice before painting to avoid a flash of the other theme.
@@ -38,7 +38,7 @@
       <div>
         <p class="eyebrow">50+ AASTAT DIVIDENDI KASVU JA VABA OTSING</p>
         <h1>Dividend Kings ja vaba aktsiate valik<span>.</span></h1>
-        <p class="intro">Jälgi 25 USA Dividend Kingi viimast hinda, RSI-d ja signaale või lisa nimekirja mis tahes muu börsisümbol.</p>
+        <p class="intro">Jälgi USA Dividend Kings nimekirja hindu, RSI-d ja signaale või lisa nimekirja mis tahes muu börsisümbol.</p>
       </div>
       <div class="heading-actions">
         <button id="refresh-live" class="secondary" type="button">↻ Uuenda hindu</button>
@@ -47,9 +47,10 @@
     </div>
 
     <div id="live-notice" class="notice live" role="status">Laadin Dividend Kings ja valitud aktsiate andmeid…</div>
+    <p id="refresh-progress" class="section-caption refresh-progress" role="status" aria-live="polite" hidden></p>
     <form id="worker-url-form" class="worker-url-bar" hidden>
       <label>
-        <span>Cloudflare Workeri aadress (valikuline, otsesteks reaalajas Yahoo päringuteks):</span>
+        <span>Cloudflare Workeri aadress (valikuline, otsesteks Yahoo päringuteks):</span>
         <input id="worker-url-input" type="url" placeholder="https://stock-radar-profiles.sinu-nimi.workers.dev" required>
       </label>
       <button class="secondary small-button" type="submit">Ühenda Worker</button>
@@ -71,12 +72,22 @@
           </div>
           <div class="list-toolbar">
             <div id="list-mode-controls" class="range-controls" role="group" aria-label="Nimekirja valik">
-              <button data-list="kings" type="button" aria-pressed="true" class="active">Dividend Kings (25)</button>
+              <button data-list="kings" type="button" aria-pressed="true" class="active">Dividend Kings</button>
               <button data-list="custom" type="button" aria-pressed="false">Minu vaba valik</button>
             </div>
           </div>
         </div>
         <p id="list-caption" class="section-caption">Ettevõtted, mis on suurendanud dividendi vähemalt 50 aastat järjest. Klõpsa aktsial graafiku ja RSI detailide vaatamiseks.</p>
+        <label class="stock-sort" for="sort-stocks">Järjesta
+          <select id="sort-stocks">
+            <option value="default">Algne järjekord</option>
+            <option value="rsi-asc">RSI: madalam enne</option>
+            <option value="rsi-desc">RSI: kõrgem enne</option>
+            <option value="change-desc">Päevamuutus: tõusjad enne</option>
+            <option value="change-asc">Päevamuutus: langejad enne</option>
+            <option value="candidate">Ostukandidaadid enne</option>
+          </select>
+        </label>
 
         <div id="kings-filter-bar" class="kings-filter-bar">
           <div id="kings-filters" class="range-controls" role="group" aria-label="Filtreeri Dividend Kings nimekirja">
@@ -195,6 +206,8 @@
           <p id="rsi-range">—</p>
         </div>
       </div>
+      <p id="latest-quote" class="chart-note" role="status"></p>
+      <p class="chart-note">Valitud aktsia hinnapäring toimub iga 15 sekundi järel, päevase ajaloo päring iga 15 minuti järel. RSI ja tehniline hinnang kasutavad päevast ajalugu. „Uuenda hindu” värskendab kohe ka ajaloo.</p>
       <p class="chart-note">RSI-graafiku rohelised punktid: RSI alla 30. Kollased punktid: RSI 30 kuni alla 40. Täpsed väärtused on all tabelis.</p>
       <details>
         <summary>Vaata graafiku andmeid tabelis</summary>

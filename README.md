@@ -1,5 +1,15 @@
 # Stock Radar
 
+Dividend Kings ja vaba valiku vaates saab tabelit järjestada RSI, päevamuutuse või
+ostukandidaatide järgi. Nimekiri, valitud aktsia, ajavahemik, graafiku tüüp ja
+sortimine taastatakse samas brauseris järgmisel avamisel.
+Valitud aktsia hinnapäring toimub nähtaval vahelehel iga 15 sekundi järel;
+kahe aasta päevaajalugu küsitakse kord 15 minuti jooksul. RSI ja tehniline hinnang
+arvutatakse sellest ajaloost, jooksvat noteeringut näidatakse eraldi.
+**Uuenda hindu** värskendab kohe kogu nimekirja ajaloo ning näitab edenemist ja
+ebaõnnestunud sümboleid. Ettevõtete ühine nimekiri on `data/dividend-kings.json`;
+seda kasutavad nii veebivaade kui ka `scripts/update_kings.py`.
+
 Eestikeelne viie aktsia jälgija: Coca-Cola (KO), PepsiCo (PEP), Johnson & Johnson (JNJ),
 Procter & Gamble (PG) ja Colgate-Palmolive (CL). Staatiline HTML/CSS/JavaScript, Python andmete jaoks.
 

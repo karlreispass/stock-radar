@@ -110,6 +110,9 @@ select:focus-visible{outline:2px solid var(--green);outline-offset:3px}
 .tick-up{animation:flash-up 1.2s ease-out;border-radius:4px}
 .tick-down{animation:flash-down 1.2s ease-out;border-radius:4px}
 .list-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.stock-sort{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 24px 16px;color:var(--muted);font-size:12px}
+.stock-sort select{max-width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+.refresh-progress{margin:0 0 16px;overflow-wrap:anywhere}
 .kings-filter-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:0 24px 16px}
 .kings-search{min-width:230px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;font-size:12px}
 .streak-badge{display:inline-block;padding:4px 8px;border-radius:6px;border:1px solid var(--pill-border);color:var(--green);font-size:11px;font-weight:600}
