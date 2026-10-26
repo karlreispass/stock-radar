@@ -168,17 +168,20 @@
       </div>
 
       <div id="native-chart-section">
-        <div class="chart-label">
-          <span>Viimane noteering ja hinnaajalugu · USD <span class="chart-key">Roheline katkendjoon: viimane noteering · kollane: 20 p · sinine: 50 p · lilla: 200 p</span></span>
-          <strong id="detail-price">—</strong>
+        <p id="native-chart-status" class="chart-note" role="status" hidden></p>
+        <div id="native-chart-content">
+          <div class="chart-label">
+            <span>Viimane noteering ja hinnaajalugu · USD <span class="chart-key">Roheline katkendjoon: viimane noteering · kollane: 20 p · sinine: 50 p · lilla: 200 p</span></span>
+            <strong id="detail-price">—</strong>
+          </div>
+          <p id="history-price" class="chart-note"></p>
+          <div id="price-chart" class="chart"></div>
+          <div class="chart-label rsi-label">
+            <span>RSI (14) <span class="chart-key">─ 30 / 40 / 70 piirid</span></span>
+            <strong id="detail-rsi">—</strong>
+          </div>
+          <div id="rsi-chart" class="chart rsi-chart"></div>
         </div>
-        <p id="history-price" class="chart-note"></p>
-        <div id="price-chart" class="chart"></div>
-        <div class="chart-label rsi-label">
-          <span>RSI (14) <span class="chart-key">─ 30 / 40 / 70 piirid</span></span>
-          <strong id="detail-rsi">—</strong>
-        </div>
-        <div id="rsi-chart" class="chart rsi-chart"></div>
       </div>
 
       <div id="tv-chart-section" hidden>

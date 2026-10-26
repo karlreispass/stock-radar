@@ -413,7 +413,7 @@ test("one-minute CNBC history excludes earlier market days", () => {
   assert.deepEqual(Array.from(parsed.history, (point) => point.close), [100, 101]);
 });
 
-test("missing minute data shows a clear retry message and later restores the full day", () => {
+test("missing minute data keeps the native view distinct and later restores the full day", () => {
   const page = loadExplorer();
   page.clock.now = Date.parse("2026-10-26T18:30:00Z");
   page.state.intraday = "1m";
@@ -425,17 +425,29 @@ test("missing minute data shows a clear retry message and later restores the ful
   }));
   page.state.intradayData.set("KO:1m", intraday);
   page.run("renderDetail()");
+  assert.equal(page.nodes.get("native-chart-section").hidden, false);
+  assert.equal(page.nodes.get("native-chart-content").hidden, true);
+  assert.equal(page.nodes.get("native-chart-status").hidden, false);
+  assert.match(page.nodes.get("native-chart-status").textContent, /proovin automaatselt iga 15 sekundi järel uuesti/);
+  assert.equal(page.nodes.get("tv-chart-section").hidden, true);
+  assert.equal(page.nodes.get("ranges").hidden, false);
+  assert.match(page.nodes.get("explorer-subtitle").textContent, /Oma graafiku tänaseid 1 minuti hinnaandmeid pole saadaval/);
+  assert.equal(page.nodes.get("history-list").children.length, 0);
+
+  page.state.chartMode = "tradingview";
+  page.run("renderDetail()");
   assert.equal(page.nodes.get("native-chart-section").hidden, true);
   assert.equal(page.nodes.get("tv-chart-section").hidden, false);
-  assert.equal(page.nodes.get("ranges").hidden, false);
-  assert.match(page.nodes.get("explorer-subtitle").textContent, /Tänaseid 1 minuti hinnaandmeid pole saadaval; proovin automaatselt uuesti/);
-  assert.equal(page.nodes.get("history-list").children.length, 0);
+  page.state.chartMode = "native";
 
   intraday.history = intraday.history.map((point, index) => ({
     ...point, date: new Date(Date.parse("2026-10-26T13:30:00Z") + index * 60000).toISOString()
   }));
   page.run("renderDetail()");
   assert.equal(page.nodes.get("native-chart-section").hidden, false);
+  assert.equal(page.nodes.get("native-chart-content").hidden, false);
+  assert.equal(page.nodes.get("native-chart-status").hidden, true);
+  assert.equal(page.nodes.get("tv-chart-section").hidden, true);
   assert.equal(page.nodes.get("history-list").children.length, 300);
   assert.doesNotMatch(page.nodes.get("explorer-subtitle").textContent, /pole saadaval/);
 });

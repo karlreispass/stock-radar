@@ -1037,14 +1037,19 @@ function renderDetail() {
   const activeStock = isIntraday ? intradayStock : dailyStock;
 
   const hasHistory = Boolean(activeStock && activeStock.history && activeStock.history.length >= 2);
-  // If native history is not yet available for an uncached stock, automatically show TradingView so the chart is never blank!
-  const effectiveNative = explorerState.chartMode === "native" && hasHistory && !minuteDataMissing;
+  const nativeMode = explorerState.chartMode === "native";
+  const nativeHistoryReady = hasHistory && !minuteDataMissing;
+  const effectiveNative = nativeMode && nativeHistoryReady;
+  const minuteMessage = "Oma graafiku tänaseid 1 minuti hinnaandmeid pole saadaval; proovin automaatselt iga 15 sekundi järel uuesti.";
 
-  byId("native-chart-section").hidden = !effectiveNative;
-  byId("tv-chart-section").hidden = effectiveNative;
-  byId("ranges").hidden = explorerState.chartMode !== "native";
+  byId("native-chart-section").hidden = !nativeMode;
+  byId("native-chart-content").hidden = !nativeHistoryReady;
+  byId("native-chart-status").hidden = nativeHistoryReady;
+  byId("native-chart-status").textContent = minuteDataMissing ? minuteMessage : "Oma graafiku hinnaajalugu pole praegu saadaval.";
+  byId("tv-chart-section").hidden = nativeMode;
+  byId("ranges").hidden = !nativeMode;
 
-  if (!effectiveNative) {
+  if (!nativeMode) {
     renderTradingViewWidget(item);
   }
 
@@ -1053,8 +1058,7 @@ function renderDetail() {
     clearDetailData();
     byId("explorer-title").textContent = (item.name || item.symbol) + " · " + item.symbol;
     byId("explorer-subtitle").textContent = (item.sector || "USA börs") + streakSuffix
-      + (minuteDataMissing ? " · Tänaseid 1 minuti hinnaandmeid pole saadaval; proovin automaatselt uuesti. Kuvan TradingView graafiku."
-        : " · TradingView graafik; analüüsiandmed puuduvad");
+      + (minuteDataMissing ? " · " + minuteMessage : " · Analüüsiandmed puuduvad");
     return;
   }
 
@@ -1086,7 +1090,7 @@ function renderDetail() {
   byId("explorer-title").textContent = (item.name || activeStock.name) + " · " + activeStock.symbol;
   byId("explorer-subtitle").textContent = (item.sector || activeStock.sector) + streakSuffix
     + " · Viimane kuupäev " + formatPointLabel(latest.date, isIntraday) + " · " + dataSourceLabel(activeStock)
-    + (minuteDataMissing ? " · Tänaseid 1 minuti hinnaandmeid pole saadaval; proovin automaatselt uuesti. Kuvan TradingView graafiku." : "")
+    + (minuteDataMissing ? " · " + minuteMessage : "")
     + (explorerState.intraday === "5m" && !isIntraday ? " · Päevasisesed andmed puuduvad; kuvatakse päevaandmed" : "");
   const savedQuote = quoteSummary(item.symbol);
   const quote = isIntraday && quoteTime(activeStock) > quoteTime(savedQuote.source)
