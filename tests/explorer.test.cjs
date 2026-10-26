@@ -85,6 +85,28 @@ function phQuote(price, time) {
   return data;
 }
 
+test("a fresher PH quote appears in the chart header and as a separate price line", () => {
+  const page = loadExplorer();
+  const daily = stock("PH", "2026-10-23");
+  daily.sourceMode = "snapshot";
+  daily.history.at(-1).close = 880;
+  daily.history.at(-1).quote_close = 880;
+  daily.quote = { price: 896, as_of: "2026-10-26T14:35:00Z", date: "2026-10-26" };
+  daily.liveTime = daily.quote.as_of;
+  page.state.marketData.set("PH", daily);
+  page.state.selected = "PH";
+  page.run("renderDetail()");
+
+  assert.match(page.nodes.get("detail-price").textContent, /896/);
+  assert.match(page.nodes.get("history-price").textContent, /880/);
+  const priceChart = page.nodes.get("price-chart").children[0];
+  const quoteLine = priceChart.children.find((item) => item.tag === "line" && item.attributes["aria-label"]?.includes("896"));
+  assert.ok(quoteLine);
+  assert.match(quoteLine.children[0].textContent, /2026-10-26T14:35:00Z/);
+  assert.ok(!page.nodes.get("rsi-chart").children[0].children.some((item) => item.attributes?.["aria-label"]?.includes("896")));
+  assert.equal(daily.history.at(-1).close, 880);
+});
+
 test("a cached Friday quote cannot replace Monday's published PH price", async () => {
   const page = loadExplorer();
   const current = stock("PH", "2026-10-23");

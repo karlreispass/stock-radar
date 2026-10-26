@@ -840,7 +840,7 @@ function svgElement(tag, attributes, text) {
   return node;
 }
 
-function renderChart(containerId, points, field, isIntraday = false) {
+function renderChart(containerId, points, field, isIntraday = false, latestQuote = null) {
   const isRsi = field === "rsi";
   const width = 1100, height = isRsi ? 150 : 230;
   const left = 10, right = 70, top = 16, bottom = 30;
@@ -856,6 +856,7 @@ function renderChart(containerId, points, field, isIntraday = false) {
     for (const key of ["average", "average50", "average200"]) {
       values.push(...points.filter((point) => Number.isFinite(point[key])).map((point) => point[key]));
     }
+    if (Number.isFinite(latestQuote?.price) && latestQuote.price > 0) values.push(latestQuote.price);
   }
   const minimum = isRsi ? 0 : Math.min(...values) * 0.992;
   const maximum = isRsi ? 100 : Math.max(...values) * 1.008;
@@ -887,6 +888,16 @@ function renderChart(containerId, points, field, isIntraday = false) {
     svg.append(svgElement("path", { d: path + " L" + coordinates.at(-1)[0] + "," + base + " L" + coordinates[0][0] + "," + base + " Z", fill: "var(--green)", opacity: ".055" }));
   }
   svg.append(svgElement("path", { d: path, fill: "none", stroke: isRsi ? "var(--rsi-line)" : "var(--green)", "stroke-width": 2.2, "stroke-linejoin": "round" }));
+  if (!isRsi && Number.isFinite(latestQuote?.price) && latestQuote.price > 0) {
+    const quoteY = y(latestQuote.price);
+    const label = "Viimane noteering $" + number.format(latestQuote.price);
+    const line = svgElement("line", { x1: left, y1: quoteY, x2: width - right + 4, y2: quoteY,
+      stroke: "var(--green)", "stroke-width": 1.5, "stroke-dasharray": "3 5", "aria-label": label });
+    line.append(svgElement("title", {}, label + " · " + latestQuote.time));
+    svg.append(line);
+    svg.append(svgElement("text", { x: left + 8, y: Math.max(top + 12, quoteY - 6),
+      fill: "var(--green)", "font-size": 11 }, label));
+  }
   if (!isRsi) {
     const averagePath = points.map((point, index) => ({ point, index }))
       .filter(({ point }) => point.average !== null)
@@ -978,7 +989,7 @@ function renderTradingViewWidget(item, force = false) {
 }
 
 function clearDetailData() {
-  for (const id of ["detail-price", "detail-rsi", "price-trend", "rsi-trend", "average-position",
+  for (const id of ["detail-price", "history-price", "detail-rsi", "price-trend", "rsi-trend", "average-position",
     "average-50", "average-200", "assessment-title", "rsi-range"]) {
     byId(id).textContent = "—";
   }
@@ -1045,9 +1056,17 @@ function renderDetail() {
   byId("explorer-subtitle").textContent = (item.sector || activeStock.sector) + streakSuffix
     + " · Viimane kuupäev " + formatPointLabel(latest.date, isIntraday) + " · " + dataSourceLabel(activeStock)
     + (explorerState.intraday && !isIntraday ? " · Päevasisesed andmed puuduvad; kuvatakse päevaandmed" : "");
-  byId("detail-price").textContent = "$" + number.format(latest.close);
+  const savedQuote = quoteSummary(item.symbol);
+  const quote = isIntraday && quoteTime(activeStock) > quoteTime(savedQuote.source)
+    ? { price: latest.close, time: activeStock.liveTime || latest.date, source: activeStock }
+    : savedQuote;
+  const showQuoteLine = !isIntraday && Number.isFinite(quote.price)
+    && Date.parse(quote.time) >= Date.parse(latest.date);
+  byId("detail-price").textContent = Number.isFinite(quote.price) ? "$" + number.format(quote.price) : "—";
+  byId("history-price").textContent = "Graafiku viimase " + (isIntraday ? "päevasisese punkti" : "päeva")
+    + " hind $" + number.format(latest.close) + " · " + formatPointLabel(latest.date, isIntraday)
+    + (showQuoteLine ? ". Jooksev noteering on graafikul eraldi rohelise katkendjoonena." : ".");
   byId("detail-rsi").textContent = latest.rsi !== null ? decimal.format(latest.rsi) : "—";
-  const quote = quoteSummary(item.symbol);
   byId("latest-quote").textContent = Number.isFinite(quote.price)
     ? "Viimane noteering $" + number.format(quote.price) + " · "
       + (quote.time?.includes("T") ? dataTimeFormat : dateFormat).format(new Date(quote.time))
@@ -1083,7 +1102,7 @@ function renderDetail() {
   }
 
   if (effectiveNative) {
-    renderChart("price-chart", points, "close", isIntraday && activeStock.history[0].date.includes("T"));
+    renderChart("price-chart", points, "close", isIntraday && activeStock.history[0].date.includes("T"), showQuoteLine ? quote : null);
     renderChart("rsi-chart", points, "rsi", isIntraday && activeStock.history[0].date.includes("T"));
   }
 
