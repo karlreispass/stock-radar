@@ -77,6 +77,91 @@ function mockQuotes(page, callback) {
   page.run("fetchYahooSymbol = (...args) => quoteRequest(...args)");
 }
 
+function phQuote(price, time) {
+  const data = stock("PH", time.slice(0, 10));
+  data.liveTime = time;
+  data.history.at(-1).close = price;
+  data.history.at(-1).quote_close = price;
+  return data;
+}
+
+test("a cached Friday quote cannot replace Monday's published PH price", async () => {
+  const page = loadExplorer();
+  const current = stock("PH", "2026-10-23");
+  current.sourceMode = "snapshot";
+  current.liveTime = "2026-10-26T14:35:00Z";
+  current.quote = { price: 896, as_of: current.liveTime, date: "2026-10-26" };
+  current.fetchedAt = page.clock.now;
+  page.state.marketData.set("PH", current);
+  page.context.oldQuote = phQuote(880, "2026-10-23T20:00:00Z");
+  page.run("writeSessionCache('PH:1d:5d', oldQuote)");
+  await page.run("loadStockData({symbol:'PH',name:'PH'}, true)");
+  const result = page.run("quoteSummary('PH')");
+  assert.equal(result.price, 896);
+  assert.equal(result.time, "2026-10-26T14:35:00Z");
+});
+
+test("an older history response preserves both a newer quote and daily history", async () => {
+  const page = loadExplorer();
+  const current = phQuote(896, "2026-10-26T14:35:00Z");
+  page.state.marketData.set("PH", current);
+  mockQuotes(page, async () => phQuote(880, "2026-10-23T20:00:00Z"));
+  assert.equal(await page.run("loadStockData({symbol:'PH',name:'PH'}, false)"), false);
+  assert.equal(page.run("quoteSummary('PH').price"), 896);
+  assert.equal(page.state.marketData.get("PH"), current);
+});
+
+test("a newer lower PH quote is accepted by its observation time", async () => {
+  const page = loadExplorer();
+  const current = phQuote(896, "2026-10-26T14:35:00Z");
+  current.fetchedAt = page.clock.now;
+  page.state.marketData.set("PH", current);
+  mockQuotes(page, async () => phQuote(880, "2026-10-26T14:36:00Z"));
+  await page.run("loadStockData({symbol:'PH',name:'PH'}, true)");
+  const result = page.run("quoteSummary('PH')");
+  assert.equal(result.price, 880);
+  assert.equal(result.time, "2026-10-26T14:36:00Z");
+});
+
+test("a delayed history refresh cannot erase a newer short quote", async () => {
+  const page = loadExplorer();
+  page.state.marketData.set("PH", phQuote(880, "2026-10-23T20:00:00Z"));
+  let finishHistory;
+  mockQuotes(page, () => new Promise((resolve) => { finishHistory = resolve; }));
+  const pending = page.run("loadStockData({symbol:'PH',name:'PH'}, false)");
+  const freshQuote = phQuote(896, "2026-10-26T14:36:00Z");
+  page.state.latestQuotes.set("PH", freshQuote);
+  finishHistory(phQuote(890, "2026-10-26T14:35:00Z"));
+  await pending;
+  assert.equal(page.run("quoteSummary('PH').price"), 896);
+  assert.equal(page.state.latestQuotes.get("PH"), freshQuote);
+});
+
+test("published snapshots preserve newer quotes in either direction", async () => {
+  const page = loadExplorer();
+  const current = phQuote(896, "2026-10-26T14:35:00Z");
+  page.state.marketData.set("PH", current);
+  page.state.latestQuotes.set("PH", phQuote(880, "2026-10-23T20:00:00Z"));
+  let published = phQuote(879, "2026-10-23T20:00:00Z");
+  published.quote = { price: 879, as_of: published.liveTime, date: "2026-10-23" };
+  page.context.fetch = async () => ({ ok: true, json: async () => ({ mode: "live", stocks: [published] }) });
+  await page.run("loadPublishedSnapshots()");
+  assert.equal(page.run("quoteSummary('PH').price"), 896);
+  published = phQuote(881, "2026-10-26T14:36:00Z");
+  published.quote = { price: 881, as_of: published.liveTime, date: "2026-10-26" };
+  await page.run("loadPublishedSnapshots()");
+  assert.equal(page.run("quoteSummary('PH').price"), 881);
+  assert.equal(page.state.marketData.get("PH"), current);
+});
+
+test("a successful provider response with an older observation is rejected", async () => {
+  const page = loadExplorer();
+  page.state.latestQuotes.set("PH", phQuote(896, "2026-10-26T14:35:00Z"));
+  page.context.provider = { url: "https://provider.example", parse: () => phQuote(880, "2026-10-23T20:00:00Z") };
+  page.context.fetch = async () => ({ ok: true, text: async () => "unused" });
+  await assert.rejects(page.run("fetchViaProvider(provider, 'PH', '', false, 1)"), /vanem/);
+});
+
 test("published quotes refresh every minute without replacing newer provider prices", async () => {
   const page = loadExplorer();
   const daily = stock();

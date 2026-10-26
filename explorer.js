@@ -383,7 +383,12 @@ async function fetchViaProvider(provider, symbol, customName, isIntraday, minimu
     const wrapper = JSON.parse(rawText);
     rawText = wrapper.contents || "";
   }
-  return provider.parse(rawText, symbol, customName, isIntraday, minimumPoints);
+  const stock = provider.parse(rawText, symbol, customName, isIntraday, minimumPoints);
+  if (!isIntraday && quoteTime(stock) < quoteTime(newestQuoteStock(symbol))) {
+    // A successful HTTP response can still contain an old closing price.
+    throw new Error("Andmeallika noteering on vanem kui juba kuvatav hind.");
+  }
+  return stock;
 }
 
 async function fetchYahooSymbol(symbol, customName, useCache = true, interval = "1d", range = "2y", minimumPoints = 16) {
@@ -523,15 +528,14 @@ async function loadPublishedSnapshots() {
             liveTime: stock.quote?.as_of || stock.history?.at(-1)?.date,
             isRealtime: false
           };
-          explorerState.fallbackData.set(stock.symbol, enriched);
+          rememberQuote(stock.symbol, enriched);
+          if (quoteTime(enriched) >= quoteTime(explorerState.fallbackData.get(stock.symbol))) {
+            explorerState.fallbackData.set(stock.symbol, enriched);
+          }
           const current = explorerState.marketData.get(stock.symbol);
           const currentTime = Date.parse(current?.liveTime || current?.history?.at(-1)?.date || "");
           if (!current || (["snapshot", "demo"].includes(current.sourceMode) && Date.parse(enriched.liveTime) >= currentTime)) {
             explorerState.marketData.set(stock.symbol, structuredClone(enriched));
-            const latestQuote = explorerState.latestQuotes.get(stock.symbol);
-            if (latestQuote && ["snapshot", "demo"].includes(latestQuote.sourceMode)) {
-              explorerState.latestQuotes.delete(stock.symbol);
-            }
           }
         }
       } catch {
@@ -662,8 +666,27 @@ function filteredListItems() {
   });
 }
 
+function quoteTime(stock) {
+  const timestamp = Date.parse(stock?.quote?.as_of || stock?.liveTime || stock?.history?.at(-1)?.date || "");
+  return Number.isFinite(timestamp) ? timestamp : -Infinity;
+}
+
+function newestQuoteStock(symbol) {
+  let newest = null;
+  for (const stock of [explorerState.latestQuotes.get(symbol), explorerState.marketData.get(symbol), explorerState.fallbackData.get(symbol)]) {
+    if (stock && (!newest || quoteTime(stock) > quoteTime(newest))) newest = stock;
+  }
+  return newest;
+}
+
+function rememberQuote(symbol, incoming) {
+  const current = newestQuoteStock(symbol);
+  const newest = current && quoteTime(current) > quoteTime(incoming) ? current : incoming;
+  explorerState.latestQuotes.set(symbol, newest);
+}
+
 function quoteSummary(symbol) {
-  const stock = explorerState.latestQuotes.get(symbol) || explorerState.marketData.get(symbol);
+  const stock = newestQuoteStock(symbol);
   const latest = stock?.history?.at(-1);
   const previous = stock?.quote && stock.quote.date > latest?.date ? latest : stock?.history?.at(-2);
   const price = stock?.quote?.price ?? latest?.quote_close ?? latest?.close;
@@ -1090,13 +1113,18 @@ async function loadStockData(item, useCache) {
     const data = await fetchYahooSymbol(item.symbol, customName, useCache, "1d", "2y");
     if (!data.refreshFailed) explorerState.historyAttempts.delete(item.symbol);
     const updated = { ...data, fetchedAt: data.fetchedAt || (data.refreshFailed ? undefined : Date.now()) };
+    if (!data.refreshFailed) rememberQuote(item.symbol, updated);
+    // Refreshing the history must not roll it back to an earlier trading day.
+    if (current?.history?.at(-1)?.date > updated.history?.at(-1)?.date) {
+      explorerState.historyAttempts.set(item.symbol, Date.now());
+      return false;
+    }
     explorerState.marketData.set(item.symbol, updated);
-    if (!data.refreshFailed) explorerState.latestQuotes.set(item.symbol, updated);
     return !data.refreshFailed;
   }
   // Only a few daily bars are needed for the current quote and its daily change.
   const quote = await fetchYahooSymbol(item.symbol, customName, useCache, "1d", "5d", 1);
-  if (!quote.refreshFailed) explorerState.latestQuotes.set(item.symbol, quote);
+  if (!quote.refreshFailed) rememberQuote(item.symbol, quote);
   return !quote.refreshFailed;
 }
 
@@ -1247,6 +1275,7 @@ async function handleAddStock(event) {
     let resolvedName = customName || symbol;
     try {
       const data = await fetchYahooSymbol(symbol, customName, false, "1d", "2y");
+      if (!data.refreshFailed) rememberQuote(symbol, data);
       explorerState.marketData.set(symbol, data);
       resolvedName = customName || data.name || symbol;
     } catch {
