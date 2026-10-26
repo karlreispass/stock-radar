@@ -4,6 +4,8 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from yfinance.utils import format_history_metadata
+
 from scripts.update_data import calculate_rsi, download_history, download_quote, latest_completed_date, make_history
 
 
@@ -120,6 +122,31 @@ class QuoteTests(unittest.TestCase):
     def test_latest_quote_has_its_own_price_and_timestamp(self):
         quote = download_quote("KO", self.now)
         self.assertEqual(quote, {"price": 68.25, "as_of": self.now.isoformat(), "date": "2026-10-23"})
+
+    def test_pandas_timestamps_preserve_the_same_instant_in_different_time_zones(self):
+        import pandas as pd
+
+        expected = {"price": 68.25, "as_of": self.now.isoformat(), "date": "2026-10-23"}
+        for time_zone in ("UTC", "America/New_York"):
+            with self.subTest(time_zone=time_zone):
+                self.metadata["regularMarketTime"] = pd.Timestamp(self.now).tz_convert(time_zone)
+                self.assertEqual(download_quote("KO", self.now), expected)
+
+    def test_metadata_formatted_by_yfinance_is_accepted(self):
+        metadata = {
+            **self.metadata,
+            "regularMarketTime": int(self.now.timestamp()),
+            "exchangeTimezoneName": "America/New_York",
+        }
+        self.metadata.update(format_history_metadata(metadata))
+        quote = download_quote("KO", self.now)
+        self.assertEqual(quote["as_of"], self.now.isoformat())
+        self.assertEqual(quote["date"], "2026-10-23")
+
+    def test_datetime_without_time_zone_is_rejected(self):
+        self.metadata["regularMarketTime"] = self.now.replace(tzinfo=None)
+        with self.assertRaisesRegex(RuntimeError, "must include a time zone"):
+            download_quote("KO", self.now)
 
     def test_invalid_prices_and_timestamps_are_rejected(self):
         original = self.metadata.copy()

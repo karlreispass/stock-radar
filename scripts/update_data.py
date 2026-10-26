@@ -128,7 +128,14 @@ def quote_from_metadata(metadata, now=None):
     """Validate the regular-session price and preserve its actual observation time."""
     now = now or datetime.now(timezone.utc)
     price = float(metadata["regularMarketPrice"])
-    timestamp = float(metadata["regularMarketTime"])
+    market_time = metadata["regularMarketTime"]
+    # yfinance converts Yahoo's numeric timestamp to a timezone-aware pandas Timestamp.
+    if isinstance(market_time, datetime):
+        if market_time.tzinfo is None or market_time.utcoffset() is None:
+            raise ValueError("Latest quote time must include a time zone.")
+        timestamp = market_time.timestamp()
+    else:
+        timestamp = float(market_time)
     if not math.isfinite(price) or price <= 0 or not math.isfinite(timestamp):
         raise ValueError("Latest quote must have a finite positive price and a valid time.")
     quoted_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
