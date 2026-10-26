@@ -1,7 +1,10 @@
+import io
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from scripts.update_data import calculate_rsi, latest_completed_date, make_history
+from scripts.update_data import calculate_rsi, download_history, latest_completed_date, make_history
 
 
 class RsiTests(unittest.TestCase):
@@ -45,6 +48,63 @@ class RsiTests(unittest.TestCase):
     def test_inadequate_history_is_rejected(self):
         with self.assertRaises(ValueError):
             make_history([])
+
+
+class DownloadHistoryTests(unittest.TestCase):
+    def setUp(self):
+        self.cutoff = date(2026, 10, 23)
+        self.rows = [
+            (datetime.combine(self.cutoff - timedelta(days=offset), datetime.min.time()),
+             {"Adj Close": 60.0, "Close": 65.0})
+            for offset in range(209, -1, -1)
+        ]
+        self.frame = Mock()
+        self.frame.iterrows.side_effect = lambda: iter(self.rows)
+        self.yfinance = Mock()
+        self.yfinance.Ticker.return_value.history.return_value = self.frame
+        self.stderr = io.StringIO()
+        for patcher in (
+            patch.dict("sys.modules", {"yfinance": self.yfinance}),
+            patch("scripts.update_data.time.sleep"),
+            patch("sys.stderr", self.stderr),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_invalid_prices_are_skipped_and_logged(self):
+        invalid_prices = [None, float("nan"), float("inf"), float("-inf"), 0, -1, "invalid"]
+        for column in ("Adj Close", "Close"):
+            for invalid in invalid_prices:
+                with self.subTest(column=column, price=invalid):
+                    self.rows[10][1][column] = invalid
+                    history = download_history("KO", self.cutoff)
+                    self.assertEqual(len(history), 209)
+                    self.assertNotIn(self.rows[10][0].date().isoformat(), [row["date"] for row in history])
+                    self.assertEqual(history[-1]["close"], 60.0)
+                    self.assertEqual(history[-1]["quote_close"], 65.0)
+                    self.assertEqual(history[-1]["rsi"], 50.0)
+                    self.assertIn("KO: skipping invalid prices for 2026-04-07", self.stderr.getvalue())
+                    self.rows[10][1][column] = 60.0 if column == "Adj Close" else 65.0
+
+    def test_incomplete_session_is_excluded(self):
+        self.rows.append((datetime(2026, 10, 24), {"Adj Close": 100.0, "Close": 105.0}))
+        history = download_history("KO", self.cutoff)
+        self.assertEqual(len(history), 210)
+        self.assertEqual(history[-1]["date"], self.cutoff.isoformat())
+
+    def test_too_few_valid_prices_are_rejected(self):
+        for _, row in self.rows[:11]:
+            row["Close"] = None
+        with self.assertRaisesRegex(RuntimeError, "At least 200 daily observations"):
+            download_history("KO", self.cutoff)
+        self.assertEqual(self.yfinance.Ticker.call_count, 3)
+
+    def test_stale_prices_after_filtering_are_rejected(self):
+        for _, row in self.rows[-8:]:
+            row["Adj Close"] = float("nan")
+        with self.assertRaisesRegex(RuntimeError, "Latest price is more than seven days old"):
+            download_history("KO", self.cutoff)
+        self.assertEqual(self.yfinance.Ticker.call_count, 3)
 
 
 if __name__ == "__main__":

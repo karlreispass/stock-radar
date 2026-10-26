@@ -79,11 +79,25 @@ def download_history(symbol, cutoff):
     for attempt in range(3):
         try:
             frame = yf.Ticker(symbol).history(period="2y", interval="1d", auto_adjust=False, actions=False)
-            rows = [
-                (timestamp.date(), float(row["Adj Close"]), float(row["Close"]))
-                for timestamp, row in frame.iterrows()
-                if timestamp.date() <= cutoff
-            ]
+            rows = []
+            for timestamp, row in frame.iterrows():
+                trading_date = timestamp.date()
+                if trading_date > cutoff:
+                    continue
+                try:
+                    adjusted_close = float(row["Adj Close"])
+                    quote_close = float(row["Close"])
+                except (TypeError, ValueError):
+                    adjusted_close = quote_close = math.nan
+                # Yahoo can return missing prices among otherwise valid daily bars.
+                if not all(math.isfinite(price) and price > 0 for price in (adjusted_close, quote_close)):
+                    print(
+                        f"{symbol}: skipping invalid prices for {trading_date}: "
+                        f"Adj Close={row['Adj Close']!r}, Close={row['Close']!r}",
+                        file=sys.stderr,
+                    )
+                    continue
+                rows.append((trading_date, adjusted_close, quote_close))
             history = make_history(rows)
             if (cutoff - date.fromisoformat(history[-1]["date"])).days > 7:
                 raise ValueError("Latest price is more than seven days old.")
