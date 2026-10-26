@@ -245,6 +245,7 @@ test("startup refreshes every snapshot stock and requests the selected one only 
 
 test("intraday prices from a new trading day never alter daily history or its RSI", async () => {
   const page = loadExplorer();
+  page.clock.now = Date.parse("2026-10-21T16:00:00Z");
   const daily = stock();
   const original = structuredClone(daily);
   const intraday = stock("KO", "2026-10-21");
@@ -366,6 +367,7 @@ test("when all providers fail the fallback preserves newer prices already in mem
 
 test("minute bars cannot substitute for missing daily analysis", () => {
   const page = loadExplorer();
+  page.clock.now = Date.parse("2026-10-20T16:00:00Z");
   page.state.intraday = "1m";
   page.state.marketData.set("KO", { error: "offline" });
   const intraday = stock();
@@ -378,6 +380,64 @@ test("minute bars cannot substitute for missing daily analysis", () => {
   assert.equal(page.nodes.get("average-position").textContent, "Andmeid vähe");
   assert.equal(page.nodes.get("price-trend").textContent, "Andmeid vähe");
   assert.equal(page.nodes.get("native-chart-section").hidden, false);
+});
+
+test("one-minute Yahoo history contains only the current New York market day", () => {
+  const page = loadExplorer();
+  page.clock.now = Date.parse("2026-10-26T18:30:00Z");
+  const previousDay = Array.from({ length: 20 }, (_, index) => Date.parse("2026-10-23T13:30:00Z") / 1000 + index * 60);
+  const today = Array.from({ length: 300 }, (_, index) => Date.parse("2026-10-26T13:30:00Z") / 1000 + index * 60);
+  page.context.yahooPayload = JSON.stringify({ chart: { result: [{
+    timestamp: [...previousDay, ...today],
+    indicators: { quote: [{ close: [...previousDay.map(() => 90), ...today.map((_, index) => 100 + index / 10)] }] }
+  }] } });
+  const parsed = page.run("parseYahooChartResponse(yahooPayload, 'KO', '', true, 2, true)");
+  assert.equal(parsed.history.length, 300);
+  assert.equal(parsed.history[0].date, "2026-10-26T13:30:00.000Z");
+  assert.equal(parsed.history[0].rsi, null);
+  assert.equal(parsed.history.at(-1).date, "2026-10-26T18:29:00.000Z");
+
+  page.clock.now = Date.parse("2026-10-27T14:00:00Z");
+  assert.throws(() => page.run("parseYahooChartResponse(yahooPayload, 'KO', '', true, 2, true)"), /liiga vähe punkte/i);
+});
+
+test("one-minute CNBC history excludes earlier market days", () => {
+  const page = loadExplorer();
+  page.clock.now = Date.parse("2026-10-26T15:00:00Z");
+  page.context.cnbcPayload = JSON.stringify({ barData: { priceBars: [
+    { tradeTimeinMills: Date.parse("2026-10-23T14:00:00Z"), close: 90 },
+    { tradeTimeinMills: Date.parse("2026-10-26T13:30:00Z"), close: 100 },
+    { tradeTimeinMills: Date.parse("2026-10-26T13:31:00Z"), close: 101 }
+  ] } });
+  const parsed = page.run("parseCnbcBarsResponse(cnbcPayload, 'KO', '', true, 2, true)");
+  assert.deepEqual(Array.from(parsed.history, (point) => point.close), [100, 101]);
+});
+
+test("missing minute data shows a clear retry message and later restores the full day", () => {
+  const page = loadExplorer();
+  page.clock.now = Date.parse("2026-10-26T18:30:00Z");
+  page.state.intraday = "1m";
+  page.state.marketData.set("KO", stock("KO", "2026-10-23"));
+  const intraday = stock("KO", "2026-10-23");
+  intraday.history = Array.from({ length: 300 }, (_, index) => ({
+    date: new Date(Date.parse("2026-10-23T13:30:00Z") + index * 60000).toISOString(),
+    close: 100 + index, rsi: 50
+  }));
+  page.state.intradayData.set("KO:1m", intraday);
+  page.run("renderDetail()");
+  assert.equal(page.nodes.get("native-chart-section").hidden, true);
+  assert.equal(page.nodes.get("tv-chart-section").hidden, false);
+  assert.equal(page.nodes.get("ranges").hidden, false);
+  assert.match(page.nodes.get("explorer-subtitle").textContent, /Tänaseid 1 minuti hinnaandmeid pole saadaval; proovin automaatselt uuesti/);
+  assert.equal(page.nodes.get("history-list").children.length, 0);
+
+  intraday.history = intraday.history.map((point, index) => ({
+    ...point, date: new Date(Date.parse("2026-10-26T13:30:00Z") + index * 60000).toISOString()
+  }));
+  page.run("renderDetail()");
+  assert.equal(page.nodes.get("native-chart-section").hidden, false);
+  assert.equal(page.nodes.get("history-list").children.length, 300);
+  assert.doesNotMatch(page.nodes.get("explorer-subtitle").textContent, /pole saadaval/);
 });
 
 test("sorting uses numeric RSI and daily change, keeps missing values last and preserves the watchlist", () => {

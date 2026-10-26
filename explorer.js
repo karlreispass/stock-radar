@@ -286,7 +286,15 @@ function buildStockObject(requestedSymbol, customName, sourceLabel, rows, liveTi
   };
 }
 
-function parseYahooChartResponse(text, requestedSymbol, customName, isIntraday = false, minimumPoints = 16) {
+function newYorkDate(value) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(new Date(value));
+  const part = (type) => parts.find((item) => item.type === type).value;
+  return part("year") + "-" + part("month") + "-" + part("day");
+}
+
+function parseYahooChartResponse(text, requestedSymbol, customName, isIntraday = false, minimumPoints = 16, onlyToday = false) {
   const json = JSON.parse(text);
   const result = json?.chart?.result?.[0];
   if (!result || !Array.isArray(result.timestamp) || !result.indicators?.quote?.[0]) {
@@ -324,17 +332,21 @@ function parseYahooChartResponse(text, requestedSymbol, customName, isIntraday =
     });
   }
 
-  const rows = Array.from(byKey.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const today = onlyToday ? newYorkDate(Date.now()) : null;
+  const rows = Array.from(byKey.values())
+    .filter((row) => !today || newYorkDate(row.date) === today)
+    .sort((a, b) => a.date.localeCompare(b.date));
   const exchange = meta.exchangeName || meta.fullExchangeName || "USA börs";
   const resolvedName = customName || meta.shortName || meta.longName || requestedSymbol;
-  const liveTimeIso = Number.isFinite(meta.regularMarketTime)
-    ? new Date(meta.regularMarketTime * 1000).toISOString()
-    : rows.at(-1)?.date;
+  const liveTimeIso = onlyToday ? rows.at(-1)?.date
+    : Number.isFinite(meta.regularMarketTime)
+      ? new Date(meta.regularMarketTime * 1000).toISOString()
+      : rows.at(-1)?.date;
 
   return buildStockObject(requestedSymbol, resolvedName, exchange, rows, liveTimeIso, minimumPoints);
 }
 
-function parseCnbcBarsResponse(text, requestedSymbol, customName, isIntraday = false, minimumPoints = 16) {
+function parseCnbcBarsResponse(text, requestedSymbol, customName, isIntraday = false, minimumPoints = 16, onlyToday = false) {
   const json = JSON.parse(text);
   const bars = json?.barData?.priceBars || json?.barData?.bars;
   if (!Array.isArray(bars) || bars.length < minimumPoints) {
@@ -360,7 +372,10 @@ function parseCnbcBarsResponse(text, requestedSymbol, customName, isIntraday = f
     const rounded = Number(close.toFixed(4));
     byKey.set(key, { date: key, close: rounded, quote_close: rounded });
   }
-  const rows = Array.from(byKey.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const today = onlyToday ? newYorkDate(Date.now()) : null;
+  const rows = Array.from(byKey.values())
+    .filter((row) => !today || newYorkDate(row.date) === today)
+    .sort((a, b) => a.date.localeCompare(b.date));
   return buildStockObject(requestedSymbol, customName || requestedSymbol, "USA börs", rows, undefined, minimumPoints);
 }
 
@@ -372,7 +387,7 @@ function formatCnbcTimestamp(dateObj) {
     + "235959";
 }
 
-async function fetchViaProvider(provider, symbol, customName, isIntraday, minimumPoints) {
+async function fetchViaProvider(provider, symbol, customName, isIntraday, minimumPoints, onlyToday) {
   const response = await fetch(provider.url, {
     cache: "no-store",
     signal: AbortSignal.timeout(8500)
@@ -383,7 +398,7 @@ async function fetchViaProvider(provider, symbol, customName, isIntraday, minimu
     const wrapper = JSON.parse(rawText);
     rawText = wrapper.contents || "";
   }
-  const stock = provider.parse(rawText, symbol, customName, isIntraday, minimumPoints);
+  const stock = provider.parse(rawText, symbol, customName, isIntraday, minimumPoints, onlyToday);
   if (!isIntraday && quoteTime(stock) < quoteTime(newestQuoteStock(symbol))) {
     // A successful HTTP response can still contain an old closing price.
     throw new Error("Andmeallika noteering on vanem kui juba kuvatav hind.");
@@ -393,7 +408,9 @@ async function fetchViaProvider(provider, symbol, customName, isIntraday, minimu
 
 async function fetchYahooSymbol(symbol, customName, useCache = true, interval = "1d", range = "2y", minimumPoints = 16) {
   const isIntraday = interval !== "1d";
-  const cacheKey = symbol + ":" + interval + ":" + range;
+  const onlyToday = interval === "1m";
+  if (onlyToday) minimumPoints = 2;
+  const cacheKey = symbol + ":" + interval + ":" + range + (onlyToday ? ":" + newYorkDate(Date.now()) : "");
   if (useCache) {
     const maxAge = interval === "1d" && range === "2y" ? HISTORY_REFRESH_MS : CACHE_TTL_MS;
     const cached = readSessionCache(cacheKey, maxAge, minimumPoints);
@@ -451,14 +468,14 @@ async function fetchYahooSymbol(symbol, customName, useCache = true, interval = 
   );
 
   try {
-    const firstWave = providers.slice(0, 2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday, minimumPoints));
+    const firstWave = providers.slice(0, 2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday, minimumPoints, onlyToday));
     const parsed = await Promise.any(firstWave);
     parsed.fetchedAt = Date.now();
     writeSessionCache(cacheKey, parsed);
     return parsed;
   } catch {
     try {
-      const secondWave = providers.slice(2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday, minimumPoints));
+      const secondWave = providers.slice(2).map((p) => fetchViaProvider(p, symbol, customName, isIntraday, minimumPoints, onlyToday));
       const parsed = await Promise.any(secondWave);
       parsed.fetchedAt = Date.now();
       writeSessionCache(cacheKey, parsed);
@@ -1004,17 +1021,28 @@ function renderDetail() {
   const item = findItemBySymbol(explorerState.selected) || activeListItems()[0];
   if (!item) return;
   const dailyStock = explorerState.marketData.get(item.symbol);
-  const intradayStock = explorerState.intradayData.get(item.symbol + ":" + explorerState.intraday);
+  const savedIntraday = explorerState.intradayData.get(item.symbol + ":" + explorerState.intraday);
+  let intradayStock = savedIntraday;
+  if (explorerState.intraday === "1m" && savedIntraday?.history) {
+    const today = newYorkDate(Date.now());
+    const todayHistory = savedIntraday.history.filter((point) => point.date.includes("T") && newYorkDate(point.date) === today);
+    const rsiValues = calculateRsi(todayHistory.map((point) => point.close));
+    intradayStock = todayHistory.length >= 2 ? {
+      ...savedIntraday,
+      history: todayHistory.map((point, index) => ({ ...point, rsi: rsiValues[index] }))
+    } : null;
+  }
+  const minuteDataMissing = explorerState.intraday === "1m" && !intradayStock?.history?.length;
   const isIntraday = Boolean(explorerState.intraday && intradayStock?.history?.length);
   const activeStock = isIntraday ? intradayStock : dailyStock;
 
   const hasHistory = Boolean(activeStock && activeStock.history && activeStock.history.length >= 2);
   // If native history is not yet available for an uncached stock, automatically show TradingView so the chart is never blank!
-  const effectiveNative = explorerState.chartMode === "native" && hasHistory;
+  const effectiveNative = explorerState.chartMode === "native" && hasHistory && !minuteDataMissing;
 
   byId("native-chart-section").hidden = !effectiveNative;
   byId("tv-chart-section").hidden = effectiveNative;
-  byId("ranges").hidden = !effectiveNative;
+  byId("ranges").hidden = explorerState.chartMode !== "native";
 
   if (!effectiveNative) {
     renderTradingViewWidget(item);
@@ -1024,14 +1052,16 @@ function renderDetail() {
   if (!hasHistory) {
     clearDetailData();
     byId("explorer-title").textContent = (item.name || item.symbol) + " · " + item.symbol;
-    byId("explorer-subtitle").textContent = (item.sector || "USA börs") + streakSuffix + " · TradingView graafik; analüüsiandmed puuduvad";
+    byId("explorer-subtitle").textContent = (item.sector || "USA börs") + streakSuffix
+      + (minuteDataMissing ? " · Tänaseid 1 minuti hinnaandmeid pole saadaval; proovin automaatselt uuesti. Kuvan TradingView graafiku."
+        : " · TradingView graafik; analüüsiandmed puuduvad");
     return;
   }
 
   const latest = activeStock.history.at(-1);
   let points;
   if (isIntraday && activeStock.history[0].date.includes("T")) {
-    const maxPoints = explorerState.intraday === "1m" ? 240 : 300;
+    const maxPoints = explorerState.intraday === "1m" ? activeStock.history.length : 300;
     const allWithAvg = activeStock.history.map((point, index) => ({
       ...point,
       previousRsi: activeStock.history[index - 1]?.rsi ?? null,
@@ -1051,11 +1081,13 @@ function renderDetail() {
       average200: movingAverage(activeStock.history, index, 200)
     })).filter((point) => Date.parse(point.date) >= cutoff.getTime());
   }
+  if (minuteDataMissing) points = [];
 
   byId("explorer-title").textContent = (item.name || activeStock.name) + " · " + activeStock.symbol;
   byId("explorer-subtitle").textContent = (item.sector || activeStock.sector) + streakSuffix
     + " · Viimane kuupäev " + formatPointLabel(latest.date, isIntraday) + " · " + dataSourceLabel(activeStock)
-    + (explorerState.intraday && !isIntraday ? " · Päevasisesed andmed puuduvad; kuvatakse päevaandmed" : "");
+    + (minuteDataMissing ? " · Tänaseid 1 minuti hinnaandmeid pole saadaval; proovin automaatselt uuesti. Kuvan TradingView graafiku." : "")
+    + (explorerState.intraday === "5m" && !isIntraday ? " · Päevasisesed andmed puuduvad; kuvatakse päevaandmed" : "");
   const savedQuote = quoteSummary(item.symbol);
   const quote = isIntraday && quoteTime(activeStock) > quoteTime(savedQuote.source)
     ? { price: latest.close, time: activeStock.liveTime || latest.date, source: activeStock }
@@ -1063,9 +1095,11 @@ function renderDetail() {
   const showQuoteLine = !isIntraday && Number.isFinite(quote.price)
     && Date.parse(quote.time) >= Date.parse(latest.date);
   byId("detail-price").textContent = Number.isFinite(quote.price) ? "$" + number.format(quote.price) : "—";
-  byId("history-price").textContent = "Graafiku viimase " + (isIntraday ? "päevasisese punkti" : "päeva")
-    + " hind $" + number.format(latest.close) + " · " + formatPointLabel(latest.date, isIntraday)
-    + (showQuoteLine ? ". Jooksev noteering on graafikul eraldi rohelise katkendjoonena." : ".");
+  byId("history-price").textContent = minuteDataMissing
+    ? "Viimane päevahind $" + number.format(latest.close) + " · " + formatPointLabel(latest.date, false) + "."
+    : "Graafiku viimase " + (isIntraday ? "päevasisese punkti" : "päeva")
+      + " hind $" + number.format(latest.close) + " · " + formatPointLabel(latest.date, isIntraday)
+      + (showQuoteLine ? ". Jooksev noteering on graafikul eraldi rohelise katkendjoonena." : ".");
   byId("detail-rsi").textContent = latest.rsi !== null ? decimal.format(latest.rsi) : "—";
   byId("latest-quote").textContent = Number.isFinite(quote.price)
     ? "Viimane noteering $" + number.format(quote.price) + " · "
