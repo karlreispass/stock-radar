@@ -24,6 +24,9 @@ python -m http.server 8000 --bind 127.0.0.1
 
 Ava http://localhost:8000. HTML-faili otse avamise asemel kasuta veebiserverit.
 Veebivaate uuestilaadimise nupp loeb olemasoleva JSON-i uuesti; see ei käivita Yahoo päringut.
+Põhivaade ja TradingView vaade kontrollivad nähtaval vahelehel uut andmefaili iga minuti järel.
+Dividend Kingsi vaade kontrollib sama sagedusega avaldatud varuandmeid ning säilitab oma
+senise otsepäringutega hinnavärskenduse.
 
 ## Pärisandmed
 
@@ -55,8 +58,14 @@ Töövoog kasutab GitHubi automaatset tokenit; eraldi salasõnu ega API võtmeid
 `github-pages` keskkonna kaitse võib nõuda GitHubis avaldamise kinnitamist.
 
 - **Checks**: pull request, push `main` harusse või käsitsi. RSI testid, JS süntaks, näidisandmete genereerimine.
-- **Refresh data and deploy Pages**: push `main` harusse, käsitsi või E–R kell 22:25 UTC
+- **Refresh data and deploy Pages**: push `main` harusse, käsitsi, USA börsi lahtioleku ajal
+  umbes iga 15 minuti järel ning E–R kell 22:25 UTC pärast sulgemist
   (Eestis talvel 00:25, suvel 01:25 järgmisel kuupäeval).
+- Päevasisese ajastuse UTC minutid on 07, 22, 37 ja 52. Börsikalender kontrollib tegelikku
+  lahtiolekut, sealhulgas USA suveaega, turupühi ja lühendatud börsipäevi.
+- Päevasisesed käivitused avaldavad hinnad, kuid ei saada päevaseid signaaliteavitusi.
+  Õhtune käivitus saadab teavitused; käsitsi ja push-käivitustel on need lubatud alates
+  kella 17:00-st New Yorgis.
 - Päevased andmed lisatakse avaldamise artefakti. Robot ei tee reposse andme-commit'e.
 - Ajastatud käivitused kasutavad vaikimisi haru ning võivad GitHubi koormuse tõttu hilineda.
   Avalikus repos võidakse need pärast 60 päeva tegevusetust peatada.
@@ -71,13 +80,17 @@ GitHubi juhend: https://docs.github.com/en/pages/getting-started-with-github-pag
   võivad seetõttu erineda tolle päeva tegelikust noteeringust ja ajas tagasiulatuvalt muutuda.
 - Tänane päev võetakse kaasa alles pärast kella 17:00 New Yorgis, et vältida poolelioleva
   kauplemispäeva kasutamist. Turupühadel jääb viimaseks eelmine olemasolev kauplemispäev.
-- Kõik signaalid ja päevamuutus kasutavad neid korrigeeritud hindu.
+- Päevane RSI, signaalid, graafikud ja ajaloolised võrdlused kasutavad korrigeeritud sulgemishindu.
+- Tabeli viimane hind on eraldi korrigeerimata noteering koos tegeliku hinnaajaga.
+  Päevamuutus võrdleb seda eelmise lõpetatud börsipäeva korrigeerimata sulgemishinnaga.
+  Päevasisene noteering ei lisandu RSI päevaajalukku. See kehtib ka avaldatud Dividend Kingsi andmefailile.
 - **Jälgimisala:** RSI < 40. **Alla 30:** RSI < 30. **Taastumine:** eelmine RSI < 30 ja viimane RSI >= 30.
   **Üle 70:** RSI > 70. Vahemikus 40–70 neutraalne; 30 kuni alla 40 jälgimisala.
 - Muutumatu hinna erijuht: RSI 50; ainult tõusude korral 100; ainult languste korral 0.
 - 30 päeva vahemik tähendab 30 kalendripäeva viimase andmepäeva suhtes, mitte 30 kauplemispäeva.
 - Vanema kui nelja kalendripäeva andmekuupäeva puhul kuvab veeb aegumise hoiatuse.
-- Andmed ei ole reaalajas. Näidisrežiim on alati selgelt märgitud.
+- Hinnad uuenevad umbes iga 15 minuti järel; andmeallika ja GitHub Actionsi viivitused lisanduvad.
+  Tegemist pole reaalajas hinnavooga. Näidisrežiim on alati selgelt märgitud.
 - Graafikute all on päevaandmete tabel; signaal ei sõltu valitud graafiku ajavahemikust.
 
 RSI ei näita ettevõtte õiglast väärtust ega ennusta kuu madalaimat hinda.

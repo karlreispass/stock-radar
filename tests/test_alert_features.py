@@ -29,6 +29,16 @@ def snapshot(previous=45, current=35):
 
 
 class AlertFeatureTests(unittest.TestCase):
+    def test_intraday_quote_does_not_change_daily_alerts(self):
+        data = snapshot(50, 50)
+        config = settings()
+        config["targets"]["KO"] = 99
+        expected = find_signals(data, settings=config)
+        data["stocks"][0]["quote"] = {"price": 1, "as_of": datetime.now(timezone.utc).isoformat(), "date": TODAY.isoformat()}
+        self.assertEqual(find_signals(data, settings=config), expected)
+        data["stocks"][0]["quote"]["price"] = 1000
+        self.assertEqual(find_signals(data, settings=config), expected)
+
     def test_watch_crossing_and_persistent_low_rsi(self):
         self.assertEqual([event["kind"] for event in find_signals(snapshot())], ["watch"])
         self.assertEqual(find_signals(snapshot(39, 35)), [])

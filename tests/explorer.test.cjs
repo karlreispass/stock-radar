@@ -77,6 +77,37 @@ function mockQuotes(page, callback) {
   page.run("fetchYahooSymbol = (...args) => quoteRequest(...args)");
 }
 
+test("published quotes refresh every minute without replacing newer provider prices", async () => {
+  const page = loadExplorer();
+  const daily = stock();
+  daily.sourceMode = "snapshot";
+  page.state.marketData.set("KO", daily);
+  page.state.latestQuotes.set("KO", structuredClone(daily));
+  const published = structuredClone(daily);
+  published.quote = { price: 150, as_of: "2026-10-21T15:00:00Z", date: "2026-10-21" };
+  const requests = [];
+  page.context.fetch = async (url) => {
+    requests.push(url);
+    return { ok: true, json: async () => ({ mode: "live", stocks: url === "data/stocks.json" ? [published] : [] }) };
+  };
+  mockQuotes(page, async () => page.state.marketData.get("KO"));
+  page.clock.now += 60000;
+  page.timer();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(requests, ["data/kings.json", "data/stocks.json"]);
+  const quote = page.run("quoteSummary('KO')");
+  assert.equal(quote.price, 150);
+  assert.equal(quote.time, published.quote.as_of);
+  assert.equal(quote.change, (150 / daily.history.at(-1).quote_close - 1) * 100);
+  assert.deepEqual(JSON.parse(JSON.stringify(page.state.marketData.get("KO").history)), daily.history);
+
+  const provider = stock("KO", "2026-10-22");
+  provider.liveTime = "2026-10-22T15:00:00Z";
+  page.state.marketData.set("KO", provider);
+  await page.run("loadPublishedSnapshots()");
+  assert.equal(page.state.marketData.get("KO"), provider);
+});
+
 test("selected stock timer keeps refreshing during a background watchlist refresh", async () => {
   const page = loadExplorer();
   page.state.loading = true;

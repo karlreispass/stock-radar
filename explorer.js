@@ -497,31 +497,49 @@ async function initConfigAndFallback() {
     byId("worker-url-input").value = explorerState.workerApiUrl || "";
   }
 
-  for (const file of ["data/kings.json", "data/stocks.json"]) {
-    try {
-      const snapResp = await fetch(file, { cache: "no-store" });
-      if (snapResp.ok) {
+  await loadPublishedSnapshots();
+}
+
+let snapshotCheckedAt = Date.now();
+let snapshotLoading = false;
+
+async function loadPublishedSnapshots() {
+  if (snapshotLoading) return;
+  snapshotLoading = true;
+  snapshotCheckedAt = Date.now();
+  try {
+    for (const file of ["data/kings.json", "data/stocks.json"]) {
+      try {
+        const snapResp = await fetch(file, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+        if (!snapResp.ok) continue;
         const snap = await snapResp.json();
-        if (Array.isArray(snap.stocks)) {
-          for (const stock of snap.stocks) {
-            const kingMeta = DIVIDEND_KINGS_LIST.find((k) => k.symbol === stock.symbol);
-            const enriched = {
-              ...stock,
-              streak_years: stock.streak_years ?? kingMeta?.streakYears ?? null,
-              sourceMode: snap.mode === "demo" ? "demo" : "snapshot",
-              liveTime: stock.history?.at(-1)?.date,
-              isRealtime: false
-            };
-            explorerState.fallbackData.set(stock.symbol, enriched);
-            if (!explorerState.marketData.has(stock.symbol)) {
-              explorerState.marketData.set(stock.symbol, structuredClone(enriched));
+        if (!Array.isArray(snap.stocks)) continue;
+        for (const stock of snap.stocks) {
+          const kingMeta = DIVIDEND_KINGS_LIST.find((k) => k.symbol === stock.symbol);
+          const enriched = {
+            ...stock,
+            streak_years: stock.streak_years ?? kingMeta?.streakYears ?? null,
+            sourceMode: snap.mode === "demo" ? "demo" : "snapshot",
+            liveTime: stock.quote?.as_of || stock.history?.at(-1)?.date,
+            isRealtime: false
+          };
+          explorerState.fallbackData.set(stock.symbol, enriched);
+          const current = explorerState.marketData.get(stock.symbol);
+          const currentTime = Date.parse(current?.liveTime || current?.history?.at(-1)?.date || "");
+          if (!current || (["snapshot", "demo"].includes(current.sourceMode) && Date.parse(enriched.liveTime) >= currentTime)) {
+            explorerState.marketData.set(stock.symbol, structuredClone(enriched));
+            const latestQuote = explorerState.latestQuotes.get(stock.symbol);
+            if (latestQuote && ["snapshot", "demo"].includes(latestQuote.sourceMode)) {
+              explorerState.latestQuotes.delete(stock.symbol);
             }
           }
         }
+      } catch {
+        // Keep the last usable snapshot when publication or network access fails.
       }
-    } catch {
-      // Ignore missing snapshot file.
     }
+  } finally {
+    snapshotLoading = false;
   }
 }
 
@@ -647,11 +665,11 @@ function filteredListItems() {
 function quoteSummary(symbol) {
   const stock = explorerState.latestQuotes.get(symbol) || explorerState.marketData.get(symbol);
   const latest = stock?.history?.at(-1);
-  const previous = stock?.history?.at(-2);
-  const price = latest?.quote_close ?? latest?.close;
+  const previous = stock?.quote && stock.quote.date > latest?.date ? latest : stock?.history?.at(-2);
+  const price = stock?.quote?.price ?? latest?.quote_close ?? latest?.close;
   const previousPrice = previous?.quote_close ?? previous?.close;
   const change = Number.isFinite(price) && previousPrice > 0 ? (price / previousPrice - 1) * 100 : null;
-  return { price, change, time: stock?.liveTime || latest?.date, source: stock };
+  return { price, change, time: stock?.quote?.as_of || stock?.liveTime || latest?.date, source: stock };
 }
 
 function sortedListItems() {
@@ -1400,6 +1418,9 @@ byId("chart-mode-controls").addEventListener("click", (event) => {
 
 setInterval(() => {
   if (document.visibilityState === "visible") {
+    if (Date.now() - snapshotCheckedAt >= 60000) {
+      loadPublishedSnapshots().then(() => { renderOverview(); renderCustomList(); renderDetail(); }).catch(showInitializationError);
+    }
     refreshSelectedAndRender(true);
   }
 }, 15000);

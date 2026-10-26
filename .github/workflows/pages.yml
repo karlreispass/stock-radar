@@ -6,6 +6,8 @@ on:
   schedule:
     # 22:25 UTC is after the US close in both summer and winter.
     - cron: '25 22 * * 1-5'
+    # Cover both US time offsets; the exchange calendar filters closed sessions.
+    - cron: '7,22,37,52 13-20 * * 1-5'
   workflow_dispatch:
 
 permissions:
@@ -16,7 +18,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      refresh: ${{ steps.plan.outputs.refresh }}
+      notify: ${{ steps.plan.outputs.notify }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'exchange-calendars>=4.11,<5'
+      - name: Check the US trading session
+        id: plan
+        run: python scripts/market_schedule.py >> "$GITHUB_OUTPUT"
+        env:
+          REFRESH_SCHEDULE: ${{ github.event.schedule }}
   build:
+    needs: plan
+    if: ${{ needs.plan.outputs.refresh == 'true' }}
     permissions:
       contents: read
       pages: read
@@ -42,7 +63,7 @@ jobs:
       - run: node --check app.js
       - run: node --check tradingview.js
       - run: node --check explorer.js
-      - name: Download completed daily prices and calculate RSI
+      - name: Download latest quotes and completed daily RSI
         run: python scripts/update_data.py
       - name: Download Dividend Kings prices and calculate RSI
         run: python scripts/update_kings.py
@@ -57,6 +78,7 @@ jobs:
           PROFILE_API_URL: ${{ vars.PROFILE_API_URL }}
 
       - name: Save market data for RSI notifications
+        if: ${{ needs.plan.outputs.notify == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: rsi-market-data
@@ -83,7 +105,8 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
   notify:
-    needs: deploy
+    needs: [plan, deploy]
+    if: ${{ needs.plan.outputs.notify == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -110,8 +133,8 @@ jobs:
 
 
   health:
-    needs: [build, deploy, notify]
-    if: ${{ always() && !cancelled() && (needs.build.result == 'failure' || needs.deploy.result == 'failure' || needs.notify.result == 'failure') }}
+    needs: [plan, build, deploy, notify]
+    if: ${{ always() && !cancelled() && (needs.plan.result == 'failure' || needs.build.result == 'failure' || needs.deploy.result == 'failure' || needs.notify.result == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

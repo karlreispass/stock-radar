@@ -83,6 +83,7 @@ async function loadPage(filename, options = {}) {
     id, name: "Kasutaja " + id.at(-1), enabled: false, updated_at: null, settings: structuredClone(baseSettings)
   }]));
   let exported = null;
+  const timers = [];
   function node(tag) {
     let value = "";
     return { tag, children: [], attributes: {}, handlers: {}, checked: false, disabled: true, textContent: "",
@@ -101,7 +102,7 @@ async function loadPage(filename, options = {}) {
     nodes.set(id, node("div"));
   }
   const meta = {};
-  const document = { documentElement: { dataset: {} }, getElementById(id) { return nodes.get(id) ?? null; },
+  const document = { documentElement: { dataset: {} }, visibilityState: "visible", getElementById(id) { return nodes.get(id) ?? null; },
     createElement: node, createElementNS(ns, tag) { return node(tag); }, querySelector() { return meta; } };
   const context = vm.createContext({
     document, Intl, console, structuredClone, Blob, AbortSignal,
@@ -112,6 +113,7 @@ async function loadPage(filename, options = {}) {
       removeItem(key) { if (options.sessionBlocked) throw Error("blocked"); session.delete(key); }
     },
     setTimeout(fn) { fn(); },
+    setInterval(callback, milliseconds) { timers.push({ callback, milliseconds }); },
     URL: class extends URL { static createObjectURL(blob) { exported = blob; return "blob:test"; } static revokeObjectURL() {} },
     localStorage: {
       getItem(key) { return saved.get(key) ?? null; },
@@ -119,6 +121,8 @@ async function loadPage(filename, options = {}) {
     },
 
     fetch: async (name, optionsForRequest = {}) => {
+      if (name === "data/stocks.json" && options.dataFailure) throw Error("Network unavailable");
+      if (name === "data/stocks.json" && options.data) return { ok: true, json: async () => structuredClone(options.data) };
       if (options.settingsFailure && name === "settings.json") return { ok: false };
       if (name === "profile-config.json" && options.profileApi) return { ok: true, json: async () => ({ api_url: "https://profiles.example" }) };
       if (name.startsWith("https://profiles.example/")) {
@@ -140,8 +144,48 @@ async function loadPage(filename, options = {}) {
     vm.runInContext(fs.readFileSync(path.join(projectRoot, name), "utf8"), context);
   }
   await new Promise((resolve) => setImmediate(resolve));
-  return { context, nodes, saved, session, remoteProfiles, exported: () => exported };
+  return { context, nodes, saved, session, remoteProfiles, timers, exported: () => exported };
 }
+
+test("intraday quotes update prices without changing daily RSI or selected stock", async () => {
+  const data = JSON.parse(fs.readFileSync(path.join(projectRoot, "data/stocks.json"), "utf8"));
+  const dailyHistory = structuredClone(data.stocks[0].history);
+  const lastDay = dailyHistory.at(-1).date;
+  const quoteDay = new Date(Date.parse(lastDay) + 86400000).toISOString().slice(0, 10);
+  data.stocks[0].quote = { price: 999, as_of: quoteDay + "T15:00:00Z", date: quoteDay };
+  const page = await loadPage("index.html", { data });
+  assert.match(page.nodes.get("stock-list").children[0].children[1].children[0].textContent, /999/);
+  assert.match(page.nodes.get("latest-quote").textContent, /999/);
+  assert.equal(page.nodes.get("detail-rsi").textContent, new Intl.NumberFormat("et-EE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(dailyHistory.at(-1).rsi));
+  assert.deepEqual(data.stocks[0].history, dailyHistory);
+  const baseline = dailyHistory.at(-1).quote_close ?? dailyHistory.at(-1).close;
+  assert.equal(vm.runInContext("quoteSummary(state.data.stocks[0]).change", page.context), (999 / baseline - 1) * 100);
+  page.nodes.get("stock-list").children[1].children[0].children[0].handlers.click();
+  page.nodes.get("quick-target").value = "123";
+  const timer = page.timers.find((item) => item.milliseconds === 60000);
+  assert.ok(timer);
+  data.stocks[0].quote.price = 1001;
+  data.generated_at = new Date(Date.parse(data.generated_at) + 60000).toISOString();
+  timer.callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(page.nodes.get("stock-list").children[0].children[1].children[0].textContent, /1\s?001/);
+  assert.match(page.nodes.get("detail-title").textContent, /PEP/);
+  assert.equal(page.nodes.get("quick-target").value, "123");
+});
+
+test("failed or invalid background refresh keeps the displayed snapshot", async () => {
+  const options = { data: JSON.parse(fs.readFileSync(path.join(projectRoot, "data/stocks.json"), "utf8")) };
+  const page = await loadPage("tradingview.html", options);
+  const originalRows = page.nodes.get("stock-list").children;
+  options.dataFailure = true;
+  await vm.runInContext("loadData(true)", page.context);
+  assert.equal(page.nodes.get("stock-list").children, originalRows);
+  assert.match(page.nodes.get("notice").textContent, /eelmise laadimise/);
+  options.dataFailure = false;
+  options.data.stocks[0].quote = { price: -1, as_of: "invalid", date: "invalid" };
+  await vm.runInContext("loadData(true)", page.context);
+  assert.equal(page.nodes.get("stock-list").children, originalRows);
+});
 
 test("both pages render research and preserve daily assessments when stocks change", async () => {
   for (const filename of ["index.html", "tradingview.html"]) {

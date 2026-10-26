@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from scripts.update_data import calculate_rsi, download_history, latest_completed_date, make_history
+from scripts.update_data import calculate_rsi, download_history, download_quote, latest_completed_date, make_history
 
 
 class RsiTests(unittest.TestCase):
@@ -105,6 +105,36 @@ class DownloadHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Latest price is more than seven days old"):
             download_history("KO", self.cutoff)
         self.assertEqual(self.yfinance.Ticker.call_count, 3)
+
+
+class QuoteTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 23, 18, 0, tzinfo=timezone.utc)
+        self.metadata = {"regularMarketPrice": 68.25, "regularMarketTime": self.now.timestamp()}
+        self.yfinance = Mock()
+        self.yfinance.Ticker.return_value.get_history_metadata.return_value = self.metadata
+        for patcher in (patch.dict("sys.modules", {"yfinance": self.yfinance}), patch("scripts.update_data.time.sleep")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_latest_quote_has_its_own_price_and_timestamp(self):
+        quote = download_quote("KO", self.now)
+        self.assertEqual(quote, {"price": 68.25, "as_of": self.now.isoformat(), "date": "2026-10-23"})
+
+    def test_invalid_prices_and_timestamps_are_rejected(self):
+        original = self.metadata.copy()
+        for key, invalid in [
+            ("regularMarketPrice", None), ("regularMarketPrice", 0),
+            ("regularMarketPrice", -1), ("regularMarketPrice", float("inf")),
+            ("regularMarketPrice", float("nan")), ("regularMarketTime", float("nan")),
+            ("regularMarketTime", (self.now - timedelta(days=8)).timestamp()),
+            ("regularMarketTime", (self.now + timedelta(hours=1)).timestamp()),
+        ]:
+            with self.subTest(key=key, value=invalid):
+                self.metadata.update(original)
+                self.metadata[key] = invalid
+                with self.assertRaisesRegex(RuntimeError, "could not download latest quote"):
+                    download_quote("KO", self.now)
 
 
 if __name__ == "__main__":

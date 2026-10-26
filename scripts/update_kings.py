@@ -11,9 +11,9 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 if __package__:
-    from .update_data import make_history
+    from .update_data import latest_completed_date, make_history, quote_from_metadata
 else:
-    from update_data import make_history
+    from update_data import latest_completed_date, make_history, quote_from_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,8 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DIVIDEND_KINGS = json.loads((ROOT / "data" / "dividend-kings.json").read_text(encoding="utf-8"))
 
 
-def download_king_history(symbol):
-    """Download 2y daily bars including today's latest market price using stdlib urllib."""
+def download_king_stock(symbol):
+    """Download completed daily bars and a separate latest regular-session quote."""
+    cutoff = latest_completed_date()
     error = None
     hosts = ["https://query2.finance.yahoo.com", "https://query1.finance.yahoo.com"]
     for attempt in range(3):
@@ -45,18 +46,21 @@ def download_king_history(symbol):
                     adj_val = float(adj_close)
                     if math.isfinite(raw_val) and raw_val > 0 and math.isfinite(adj_val) and adj_val > 0:
                         day = datetime.fromtimestamp(ts, tz=timezone.utc).date()
-                        by_date[day] = (day, adj_val, raw_val)
-                live_price = meta.get("regularMarketPrice")
-                live_time = meta.get("regularMarketTime")
-                if isinstance(live_price, (int, float)) and live_price > 0 and isinstance(live_time, (int, float)):
-                    live_day = datetime.fromtimestamp(live_time, tz=timezone.utc).date()
-                    by_date[live_day] = (live_day, float(live_price), float(live_price))
-                return make_history(list(by_date.values()))
+                        if day <= cutoff:
+                            by_date[day] = (day, adj_val, raw_val)
+                history = make_history(list(by_date.values()))
+                if (cutoff - date.fromisoformat(history[-1]["date"])).days > 7:
+                    raise ValueError("Latest price is more than seven days old.")
+                return {"history": history, "quote": quote_from_metadata(meta)}
             except Exception as exc:
                 error = exc
         if attempt < 2:
             time.sleep(2 ** attempt)
     raise RuntimeError(f"{symbol}: could not download prices: {error}")
+
+
+def download_king_history(symbol):
+    return download_king_stock(symbol)["history"]
 
 
 def demo_king_history(index, cutoff):
@@ -83,14 +87,15 @@ def build_kings_payload(demo=False):
     stocks = []
     for index, company in enumerate(DIVIDEND_KINGS):
         symbol = company["symbol"]
-        history = demo_king_history(index, cutoff) if demo else download_king_history(symbol)
+        market_data = {"history": demo_king_history(index, cutoff)} if demo else download_king_stock(symbol)
+        history = market_data["history"]
         stocks.append({
             "symbol": symbol,
             "tv_symbol": company["tvSymbol"],
             "name": company["name"],
             "sector": company["sector"],
             "streak_years": company["streakYears"],
-            "history": history,
+            **market_data,
         })
         print(f"{symbol}: {len(history)} days through {history[-1]['date']}")
     return {

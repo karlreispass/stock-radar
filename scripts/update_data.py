@@ -124,12 +124,49 @@ def demo_history(index, cutoff):
     return make_history(rows)
 
 
+def quote_from_metadata(metadata, now=None):
+    """Validate the regular-session price and preserve its actual observation time."""
+    now = now or datetime.now(timezone.utc)
+    price = float(metadata["regularMarketPrice"])
+    timestamp = float(metadata["regularMarketTime"])
+    if not math.isfinite(price) or price <= 0 or not math.isfinite(timestamp):
+        raise ValueError("Latest quote must have a finite positive price and a valid time.")
+    quoted_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    age = now - quoted_at
+    if age > timedelta(days=7) or age < -timedelta(minutes=5):
+        raise ValueError("Latest quote is stale or dated in the future.")
+    return {
+        "price": round(price, 4),
+        "as_of": quoted_at.isoformat(),
+        "date": quoted_at.astimezone(ZoneInfo("America/New_York")).date().isoformat(),
+    }
+
+
+def download_quote(symbol, now=None):
+    """Keep the latest regular-session quote separate from completed daily RSI bars."""
+    import yfinance as yf
+
+    error = None
+    for attempt in range(3):
+        try:
+            metadata = yf.Ticker(symbol).get_history_metadata()
+            return quote_from_metadata(metadata, now)
+        except Exception as exc:
+            error = exc
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+    raise RuntimeError(f"{symbol}: could not download latest quote: {error}")
+
+
 def build_payload(demo=False):
     cutoff = date.today() - timedelta(days=1) if demo else latest_completed_date()
     stocks = []
     for index, (symbol, name, sector) in enumerate(STOCKS):
         history = demo_history(index, cutoff) if demo else download_history(symbol, cutoff)
-        stocks.append({"symbol": symbol, "name": name, "sector": sector, "history": history})
+        stock = {"symbol": symbol, "name": name, "sector": sector, "history": history}
+        if not demo:
+            stock["quote"] = download_quote(symbol)
+        stocks.append(stock)
         print(f"{symbol}: {len(history)} days through {history[-1]['date']}")
     return {
         "schema_version": 1,

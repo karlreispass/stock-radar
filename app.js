@@ -1,6 +1,6 @@
 "use strict";
 
-const state = { data: null, symbol: "KO", days: 90 };
+const state = { data: null, symbol: "KO", days: 90, loading: false };
 const number = new Intl.NumberFormat("et-EE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const decimal = new Intl.NumberFormat("et-EE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const dateFormat = new Intl.DateTimeFormat("et-EE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
@@ -22,6 +22,15 @@ function stockSignal(stock) {
   return signalFor(stock.history.at(-1).rsi, stock.history.at(-2)?.rsi ?? null);
 }
 
+
+function quoteSummary(stock) {
+  const latest = stock.history.at(-1);
+  const quote = stock.quote;
+  const price = quote?.price ?? latest.quote_close ?? latest.close;
+  const baseline = quote && quote.date > latest.date ? latest : stock.history.at(-2);
+  const previousPrice = baseline.quote_close ?? baseline.close;
+  return { price, change: (price / previousPrice - 1) * 100, time: quote?.as_of ?? latest.date };
+}
 
 function directionText(change, unit) {
   if (change === null) return "Andmeid vähe";
@@ -61,7 +70,7 @@ function renderOverview() {
   } else if (stale) {
     notice.textContent = "ANDMED VÕIVAD OLLA AEGUNUD · Vanim viimane kauplemispäev on " + formatDate(dates[0]) + ". Kontrolli GitHub Actionsi viimast käivitust.";
   } else {
-    notice.textContent = "PÄEVAANDMED · Yahoo Finance / yfinance. Ainult lõppenud USA kauplemispäevad; see ei ole reaalajas hinnavoog.";
+    notice.textContent = "Yahoo Finance · Hinnad uuenevad börsi lahtioleku ajal umbes iga 15 minuti järel; andmeallikas ja avaldamine võivad viibida. RSI ja hinnangud kasutavad lõpetatud börsipäevi. Leht kontrollib uusi andmeid iga minuti järel.";
   }
   if (new Set(dates).size > 1) notice.textContent += " Aktsiate viimased andmekuupäevad erinevad.";
 }
@@ -71,8 +80,8 @@ function renderStocks() {
   body.replaceChildren();
   for (const stock of state.data.stocks) {
     const latest = stock.history.at(-1);
-    const previous = stock.history.at(-2);
-    const change = (latest.close / previous.close - 1) * 100;
+    const quote = quoteSummary(stock);
+    const change = quote.change;
     const signal = stockSignal(stock);
     const analysis = analyzeStock(stock);
     const row = element("tr", "stock-row" + (stock.symbol === state.symbol ? " selected" : ""));
@@ -89,7 +98,8 @@ function renderStocks() {
     button.addEventListener("click", () => { state.symbol = stock.symbol; renderStocks(); renderDetail(); });
     nameCell.append(button);
     const priceCell = element("td", "price-cell");
-    priceCell.append(element("strong", "", "$" + number.format(latest.close)), element("small", change >= 0 ? "positive" : "negative", (change >= 0 ? "+" : "") + number.format(change) + "%"));
+    priceCell.append(element("strong", "", "$" + number.format(quote.price)), element("small", change >= 0 ? "positive" : "negative", (change >= 0 ? "+" : "") + number.format(change) + "%"));
+    priceCell.title = "Hinna aeg: " + new Date(quote.time).toLocaleString("et-EE");
     const rsiCell = element("td", "rsi-number" + (signal.kind === "low" ? " positive" : ""), decimal.format(latest.rsi));
     rsiCell.append(element("small", "rsi-status", signal.label));
     const signalCell = element("td");
@@ -177,6 +187,9 @@ function renderDetail() {
   const points = stock.history.map((point, index) => ({ ...point, previousRsi: stock.history[index - 1]?.rsi ?? null, average: movingAverage(stock.history, index), average50: movingAverage(stock.history, index, 50), average200: movingAverage(stock.history, index, 200) })).filter((point) => Date.parse(point.date) >= cutoff.getTime());
   byId("detail-title").textContent = stock.name + " · " + stock.symbol;
   byId("detail-subtitle").textContent = stock.sector + " · Viimane kauplemispäev " + formatDate(latest.date);
+  const quote = quoteSummary(stock);
+  byId("latest-quote").textContent = "Viimane hind $" + number.format(quote.price) + " · "
+    + new Date(quote.time).toLocaleString("et-EE") + ". Graafiku päevaandmed ja RSI: " + formatDate(latest.date) + ".";
   byId("detail-price").textContent = "$" + number.format(latest.close);
   byId("detail-rsi").textContent = decimal.format(latest.rsi);
   const analysis = analyzeStock(stock);
@@ -215,6 +228,11 @@ function validateData(data) {
   for (const stock of data.stocks) {
     if (typeof stock.symbol !== "string" || symbols.has(stock.symbol) || typeof stock.name !== "string" || typeof stock.sector !== "string" || !Array.isArray(stock.history) || stock.history.length < 16) throw new Error("Aktsia andmed on vigased.");
     symbols.add(stock.symbol);
+    if (stock.quote !== undefined) {
+      const quote = stock.quote;
+      if (!quote || !Number.isFinite(quote.price) || quote.price <= 0 || !Number.isFinite(Date.parse(quote.as_of))
+        || !/^\d{4}-\d{2}-\d{2}$/.test(quote.date) || !Number.isFinite(Date.parse(quote.date))) throw new Error("Viimane noteering on vigane.");
+    }
     let previousDate = "";
     for (const point of stock.history) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(point.date) || !Number.isFinite(Date.parse(point.date)) || point.date <= previousDate || !Number.isFinite(point.close) || point.close <= 0 || !(point.rsi === null || (Number.isFinite(point.rsi) && point.rsi >= 0 && point.rsi <= 100))) throw new Error("Hinnaajalugu on vigane.");
@@ -225,23 +243,32 @@ function validateData(data) {
   }
 }
 
-async function loadData() {
+async function loadData(automatic = false) {
+  if (state.loading) return;
+  state.loading = true;
   const button = byId("refresh");
   button.disabled = true;
   try {
-    const response = await fetch("data/stocks.json", { cache: "no-store" });
+    const response = await fetch("data/stocks.json", { cache: "no-store", signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error("Andmefaili ei saanud laadida (HTTP " + response.status + ").");
     const data = await response.json();
     validateData(data);
+    if (automatic && state.data && Date.parse(data.generated_at) <= Date.parse(state.data.generated_at)) {
+      renderOverview();
+      return;
+    }
     state.data = data;
     if (!data.stocks.some((stock) => stock.symbol === state.symbol)) state.symbol = data.stocks[0].symbol;
     renderOverview();
     renderStocks();
+    const draftTarget = automatic ? byId("quick-target")?.value : undefined;
     renderDetail();
+    if (draftTarget !== undefined) byId("quick-target").value = draftTarget;
   } catch (error) {
     byId("notice").className = "notice error";
     byId("notice").textContent = "Laadimine ebaõnnestus. " + error.message + (state.data ? " Ekraanil on eelmise laadimise andmed." : " Käivita rakendus kohaliku veebiserveriga; juhis on README failis.");
   } finally {
+    state.loading = false;
     button.disabled = false;
   }
 }
@@ -270,7 +297,7 @@ function toggleTheme() {
 byId("theme-toggle").addEventListener("click", toggleTheme);
 updateThemeButton();
 
-byId("refresh").addEventListener("click", loadData);
+byId("refresh").addEventListener("click", () => loadData());
 byId("ranges")?.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-days]");
   if (!button) return;
@@ -287,3 +314,6 @@ byId("settings-export").addEventListener("click", exportResearchSettings);
 setupProfileControls();
 loadResearchSettings().then(loadProfileService);
 loadData();
+setInterval(() => {
+  if (document.visibilityState === "visible") loadData(true);
+}, 60000);
